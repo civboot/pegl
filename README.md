@@ -112,11 +112,21 @@ expression(p)
 ## API
 
 The basic API is to define a spec which is one or more Spec objects like
-`Or{...}`, `{...}` (sequence), `Maybe(...)`, etc.
+`Or{...}`, `{...}` (sequence), etc and then parse it with
+`pegl.parse(text, spec)`.
+
+### pegl.parse(text, spec)
+Parse a spec, returning the nodes or throwing a syntax error.
+
+### pegl.assertTokens(dat, spec, expect)
+Parse the `dat` with the `spec`, asserting the resulting "string tokens" are
+identical to `expect`.
+
+Useful for testing your grammar. See `tests/` for usage examples.
 
 ### Parser
-The parser tracks the current place of parsing and has several convienience
-methods for hand-rolling your own recursive descent functions.
+The parser tracks the current position of parsing in `dat` and has several
+convienience methods for hand-rolling your own recursive descent functions.
 
 > Note: the location is **line based** (not position based) because it is easier
 > to use Lua's pattern functions for raw strings and PEGL was designed to be
@@ -132,6 +142,18 @@ Fields:
 * `l`: the current line number. This is auto-incremented by `RootSpec.skipEmpty`
 * `c`: the current column number (1-based index).
 * `root`: the `RootSpec` for parsing.
+
+Methods:
+
+* `p:parse(spec)`: parse the (sub) spec, returning the result.
+* `p:consume(pattern, plain)`: consume the pattern returning the `Token` on
+   match and advancing the column. `plain` is passed to `string.find`
+   (default=false).
+* `p:peek(pattern, plain)`: identical to `consume` except it does not advance
+  the position (except skipping whitespace).
+* `p:isEof()`: return `true` if at the end of the file.
+* `p:state()` and `p:setState(state)`: get/restore the current parser state.
+  Useful if you need to backtrack (done automatically in `Or`).
 
 ### RootSpec
 The root spec defines custom behavior for your spec and can be attached via

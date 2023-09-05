@@ -76,18 +76,12 @@ local function Node(t, kind)
 end
 
 local function patImpl(p, kind, pattern, plain)
-  if p:skipEmpty() then return nil end
-  local c, c2 = string.find(p.line, pattern, p.c, plain)
-  if c == p.c then
-    p.c = c2 + 1
-    return M.Token{kind=kind, l=p.l, c=c, l2=p.l, c2=c2}
-  end
+  local t = p:consume(pattern, plain)
+  if t then t.kind = kind end
+  return t
 end
 
 local SPEC = {}
-local function parseSpec(p, spec)
-  return SPEC[ty(spec)](p, spec)
-end
 
 local function parseSeq(p, seq)
   local out, pin = {}, nil
@@ -95,7 +89,7 @@ local function parseSeq(p, seq)
     if     spec == M.PIN   then pin = true;  goto continue
     elseif spec == M.UNPIN then pin = false; goto continue
     end
-    local t = parseSpec(p, spec)
+    local t = p:parse(spec)
     if not t then return p:checkPin(pin, spec) end
     add(out, t)
     pin = (pin == nil) and true or pin
@@ -114,11 +108,11 @@ civ.update(SPEC, {
   [civ.Fn]=function(p, fn) p:skipEmpty() return fn(p) end,
   [M.Or]=function(p, or_)
     p:skipEmpty()
-    local lcs = p:lcs()
+    local state = p:state()
     for _, spec in ipairs(or_) do
-      local t = parseSpec(p, spec)
+      local t = p:parse(spec)
       if t then return Node(t, or_.kind) end
-      p.setLcs(lcs)
+      p.setState(state)
     end
   end,
   [M.Many]=function(p, many)
@@ -139,7 +133,7 @@ civ.update(SPEC, {
 -- Returns tokens: 'hi', {'+', kind='+'}, 'there'
 M.parse=function(dat, spec, root)
   local p = M.Parser.new(dat, root)
-  return parseSpec(p, spec)
+  return p:parse(spec)
 end
 
 local function toStrTokens(dat, n)
@@ -190,16 +184,26 @@ parse=function(p, spec)
   local specFn = SPEC[ty(spec)]
   return specFn(p, spec)
 end,
+peek=function(p, pattern, plain)
+  if p:skipEmpty() then return nil end
+  local c, c2 = string.find(p.line, pattern, p.c, plain)
+  if c == p.c then return M.Token{l=p.l, c=c, l2=p.l, c2=c2} end
+end,
+consume=function(p, pattern, plain)
+  local t = p:peek(pattern, plain)
+  if t then p.c = t.c2 + 1 end
+  return t
+end,
 isEof=function(p) return not p.line end,
 skipEmpty=function(p)
   p.root.skipEmpty(p)
   return p:isEof()
 end,
-lcs   =function(p) return {p.l, p.c, p.line} end,
-setLcs=function(p, lcs) p.l, p.c, p.line = lcs end,
+state   =function(p) return {p.l, p.c, p.line} end,
+setState=function(p, state) p.l, p.c, p.line = state end,
 
 parse=function(p, spec)
-  return M.parseSpec(p, spec)
+  return SPEC[ty(spec)](p, spec)
 end,
 checkPin=function(p, pin, expect)
   if not pin then return end
