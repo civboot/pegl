@@ -67,11 +67,12 @@ p:parse(grammar)
 
 PEGL: very concise and easy to fallback to hand-rolled recursive descent
 ```
-Num    = Pat('%d+', 'num')
-Name   = Pat('%w+', 'name')
-SetVar = {Name, '=', Num, kind='setVar'}
-Expr   = Or{SetVar, ... other valid expressions, kind='expr'}
-p:parse(Expr)
+num    = Pat('%d+', 'num')
+name   = Pat('%w+', 'name')
+-- Note: UNPIN and PIN are used for when errors should be raised
+setVar = {UNPIN, name, '=', PIN, num, kind='setVar'}
+expr   = Or{setVar, ... other valid expressions, kind='expr'}
+p:parse(expr)
 ```
 
 Hand-rolled recursive descent: not very concise
@@ -107,3 +108,114 @@ end
 
 expression(p)
 ```
+
+## API
+
+The basic API is to define a spec which is one or more Spec objects like
+`Or{...}`, `{...}` (sequence), `Maybe(...)`, etc.
+
+### Parser
+The parser tracks the current place of parsing and has several convienience
+methods for hand-rolling your own recursive descent functions.
+
+> Note: the location is **line based** (not position based) because it is easier
+> to use Lua's pattern functions for raw strings and PEGL was designed to be
+> used in situations where an entire file of source code may not be in memory
+
+Fields:
+
+* `dat`: reference to the underlying data. Must have methods:
+  * `getLine(l)`: return the line string at index `l` or `nil` if OOB
+  * `len()`: return the number of lines
+  * `sub(l, c, l2, c2)`: return the text between indexes
+* `line`: the current line string. This is auto-set by `RootSpec.skipEmpty`
+* `l`: the current line number. This is auto-incremented by `RootSpec.skipEmpty`
+* `c`: the current column number (1-based index).
+* `root`: the `RootSpec` for parsing.
+
+### RootSpec
+The root spec defines custom behavior for your spec and can be attached via
+`pegl.parse(dat, {...}, RootSpec{...})`. It has the following fields:
+
+`skipEmpty = function(p) ... end`
+
+* must be a function that accepts the `Parser`
+  and advances it's `l` and `c` past any empty (white) space. It must also set
+  `p.line` appropriately when `l` is moved.
+* The return value is ignored.
+* The default is to skip all whitespace (spaces, newlines, tabs, etc). This
+  should work for _most_ languages but fails for languages like python.
+* Recommendation: If your language has only a few whitespace-aware nodes (i.e.
+  strings) then hand-roll those as recursive-descent functions and leave
+  this function alone.
+
+### Naitve Nodes: Token, EofNode, EmptyNode
+A token represents an actual span of text and has fields `l, c, l2, c2`
+which can be passed to `Parser:sub`.
+
+A token can also have a `kind` value.
+
+Other native nodes include:
+
+* EofNode: represents that the end of the file was reached.
+* EmptyNode: a non-match of the spec when that is allowed (`Or{..., Empty}`)
+
+### Keyword: raw string
+Any raw strings in the spec denotes a keyword. A "plain" match is performed and
+if successful the returned node will have `kind` equal to the raw string.
+
+### Pat: pattern
+`Pat('%w+', 'word')` will create a Token with the span matching the `%w+`
+pattern and the kind of `word` when matched.
+
+### Or: choose one spec
+`Or{'keyword', OtherSpec, Empty}` will match one of the three specs given.  Note
+that `Empty` will always match (and return `EmptyNode`). Without `Empty` this
+could return `nil`, causing a parent `Or` to match a different spec.
+
+### Sequence: raw table of ordered Specs
+`{'keyword', OtherSpec, Or{'key', Empty}}` will match the exact order
+of specs given.
+
+If the first spec matches but a later one doesn't an `error` will be thrown
+(instead of `nil` returned) unless `UNPIN` is used. See the PIN/UNPIN docs for
+details.
+
+### Many: match a Spec multiple times
+`Many{'keyword', OtherSpec, min=1, kind='myMany'}` will match the given sequence
+one or more times (defult `min` is zero or more times). The result is a list of
+`kind='myMany'` of sub-nodes with no kind.
+
+### raw function: recursive descent
+A Spec of a raw Lua function must have the arguments:
+
+```
+function rawFunction(p) -- p=Parser object
+  -- perform recursive descent and return node/s
+end
+```
+
+Return value:
+
+* throw an error if it detects a syntax error
+* return the Node/s if the spec matches
+* return `nil` if the spec does not match (but is not immediately a syntax
+  error)
+
+## PIN/UNPIN: Syntax Error Reporting
+PEGL implements syntax error detection ONLY in Sequence specs (table specs i.e.
+`{...}`) by throwing an `error` if a "pinned" (see below) spec is missing.
+
+* By default, no error will be raised if the first spec is missing. After the
+  first spec, `pin` will be set to true which causes any missing specs to throw
+  an error.
+
+* `UNPIN` can be used to force `pin=true` until `UNPIN` is (optionally)
+  specified.
+
+* `UNPIN` can be used to force `pin=false` until `PIN` is (optionally)
+  specified.
+
+* `PIN` / `UNPIN` only affect the _current_ sequence (they do not affect any
+  sub-sequences).
+

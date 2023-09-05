@@ -38,10 +38,6 @@ M.Many = civ.struct('Many', {{'kind', civ.Str, false}, {'min', civ.Num, 0}})
 M.Many['#attr'] = {list = true}
 M.Many.__index = civ.listIndex
 
--- Named Node from function
-M.FnKind = struct('FnKind', {{'kind', civ.Str}, {'fn', civ.Fn}})
-M.__tostring = function(f) return f.name end
-
 -- Used in Seq to "pin" or "unpin" the parser, affecting when errors
 -- are thrown.
 M.PIN   = {'PIN'}
@@ -57,8 +53,6 @@ M.EmptyNode = {kind='Empty'}
 M.EofTy = civ.struct('EOF', {})
 M.EOF = M.EofTy{}
 M.EofNode = {kind='EOF'}
-
-local function Maybe(spec) return M.Or{spec, M.Empty} end
 
 -- Skip all whitespace
 M.RootSpec['#defaults'].skipEmpty = function(p)
@@ -118,7 +112,6 @@ civ.update(SPEC, {
     p:skipEmpty(); if p:isEof() then return M.EofNode end
   end,
   [civ.Fn]=function(p, fn) p:skipEmpty() return fn(p) end,
-  [M.FnKind]=function(p, fnKind) p:skipEmpty() return Node(fnKind.fn(p), fnKind.kind) end,
   [M.Or]=function(p, or_)
     p:skipEmpty()
     local lcs = p:lcs()
@@ -144,8 +137,8 @@ civ.update(SPEC, {
 
 -- parse('hi + there', {Pat('\w+'), '+', Pat('\w+')})
 -- Returns tokens: 'hi', {'+', kind='+'}, 'there'
-M.parse=function(dat, spec)
-  local p = M.Parser.new(dat, spec.root)
+M.parse=function(dat, spec, root)
+  local p = M.Parser.new(dat, root)
   return parseSpec(p, spec)
 end
 
