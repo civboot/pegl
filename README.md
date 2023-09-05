@@ -14,6 +14,12 @@ parser with a specific subset of features.
 PEGL implements those features as a ultra-lightweight Lua library, maintaining
 conciseness while avoiding any customized syntax.
 
+## Resources
+If you are completely new to parsers and especially if you want to write your
+own language with an AST then I cannot recommend
+[craftinginterpreters.com](http://www.craftinginterpreters.com) enough. Go check
+it out before digging too deeply into PEGL.
+
 ## Introduction
 A parser is a way to convert text into structured node objects so that
 the text can be compiled or annotated by a program. For example you might want
@@ -33,18 +39,20 @@ A recursive descent parser does so via hand-rolled functions which typically
 _recurse_ into eachother. Each function attempts to parse from the current
 parser position using it's spec (which may be composed of calling other parsing
 functions) and returns either the successfully parsed node or `nil` (or perhaps
-raises an error if it finds a syntax error).
+raises an error if it finds a syntax error).  PEGL is a lua library for writing
+the common-cases of a recursive descent parser in a (pure Lua) syntax similar to
+PEG, while still being able to fallback to hand-rolled recursive descent when
+needed.
 
-PEGL is fundamentally just a way to write the common-cases of a recursive
-descent parser, which has the bonus that you can hand-roll any complex pieces.
 Most traditional PEG parsers struggle with complicated syntax such as Lua's
 `[===[raw string syntax]===]`, python's whitespace denoted syntax or C's
 lookahead requirements (`(U2)*c**h`) -- recursive descent can solve alot of
-these problems.
+these problems relatively easily and performantly.  However, recursive descent
+parsers can be very verbse and sometimes difficult to scan. Below is a
+comparison of the above example in both PEG, PEGL and a "traditional" (though
+not very good) recursive descent implementation.
 
-However, recursive descent parsers can be very verbse and sometimes difficult
-to scan. Below is a comparison of the above example in both PEG, PEGL and
-a "traditional" (though not very good) recursive descent implementation.
+### Examples
 
 PEG: most concise but harder to fallback to hand-rolled recursive descent
 ```
@@ -99,4 +107,3 @@ end
 
 expression(p)
 ```
-
