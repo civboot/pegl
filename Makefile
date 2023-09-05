@@ -12,3 +12,4 @@ all: test
 
 test:
 	LUA_PATH=${LP} lua tests/test_pegl.lua
+	LUA_PATH=${LP} lua tests/test_lua.lua

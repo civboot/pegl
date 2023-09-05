@@ -57,10 +57,8 @@ M.EofNode = {kind='EOF'}
 -- Skip all whitespace
 M.RootSpec['#defaults'].skipEmpty = function(p)
   while true do
-    if not p.line then return end
-    if p.c > #p.line then
-      p.l, p.c = p.l + 1, 1
-      p.line = p.dat:getLine(p.l)
+    if p:isEof() then return end
+    if p.c > #p.line then p:incLine()
     else
       local c, c2 = string.find(p.line, '^%s', p.c)
       if not c then return end
@@ -193,6 +191,13 @@ consume=function(p, pattern, plain)
   local t = p:peek(pattern, plain)
   if t then p.c = t.c2 + 1 end
   return t
+end,
+sub=function(p, t) -- t=token
+  return p.dat:sub(t.l, t.c, t.l2, t.c2)
+end,
+incLine=function(p)
+  p.l, p.c = p.l + 1, 1
+  p.line = p.dat:getLine(p.l)
 end,
 isEof=function(p) return not p.line end,
 skipEmpty=function(p)
