@@ -1,13 +1,15 @@
 -- rd: recursive descent parser
 
 local civ = require'civ'
+local gap = require'civ.gap'
 local ty, extend = civ.ty, civ.extend
 local add = table.insert
 
 local M = {}
+local sfmt = string.format
 
 M.Token = struct('Token', {
-  {'kind', Str},
+  'kind',
   {'l', Int}, {'c', Int},
   {'l2', Int}, {'c2', Int},
 })
@@ -24,13 +26,17 @@ M.Parser = struct('Parser', {
   {'root', M.RootSpec},
 })
 
-M.Or = civ.struct('Or', {{'kind', civ.Str, false}, })
-M.Or.__index = civ.listIndex
-M.Pat = civ.struct('Pat', {'kind', 'pattern'}) -- Pat('kind', 'abc.*123')
+M.Pat = civ.struct('Pat', {'pattern', 'kind'})
 M.Pat.__index = civ.listIndex
-civ.constructor(M.Pat, function(ty_, kind, pattern)
+civ.constructor(M.Pat, function(ty_, pattern, kind)
   return setmetatable({kind=kind, pattern=pattern}, M.Pat)
 end)
+M.Or = civ.struct('Or', {{'kind', civ.Str, false}, })
+M.Or['#attr'] = {list = true}
+M.Or.__index = civ.listIndex
+M.Many = civ.struct('Many', {{'kind', civ.Str, false}, {'min', civ.Num, 0}})
+M.Many['#attr'] = {list = true}
+M.Many.__index = civ.listIndex
 
 -- Named Node from function
 M.FnKind = struct('FnKind', {{'kind', civ.Str}, {'fn', civ.Fn}})
@@ -43,8 +49,14 @@ M.UNPIN = {'UNPIN'}
 
 -- Denotes a missing node. When used in a spec simply returns Empty.
 -- Example: Or{Integer, String, Empty}
-M.Empty = {kind='Empty'}
-M.EOF   = {kind='EOF'} -- End of File Node
+M.EmptyTy = civ.struct('Empty', {})
+M.Empty = M.EmptyTy{}
+M.EmptyNode = {kind='Empty'}
+
+-- Denotes the end of the file
+M.EofTy = civ.struct('EOF', {})
+M.EOF = M.EofTy{}
+M.EofNode = {kind='EOF'}
 
 local function Maybe(spec) return M.Or{spec, M.Empty} end
 
@@ -72,76 +84,126 @@ end
 local function patImpl(p, kind, pattern, plain)
   if p:skipEmpty() then return nil end
   local c, c2 = string.find(p.line, pattern, p.c, plain)
-  if c == c2 then
+  if c == p.c then
     p.c = c2 + 1
     return M.Token{kind=kind, l=p.l, c=c, l2=p.l, c2=c2}
   end
 end
 
-local SPEC = {
-  [M.Empty]=function() return M.Empty end,
-  [civ.Str]=function(p, keyword)
-    return patImpl(p, keyword, keyword, true)
-  end,
-  [M.Pat]=function(p, pat)
-    return patImpl(p, pat.kind, pat.pattern, false)
-  end,
-  [civ.Fn]=function(p, fn)
-    if p:skipEmpty() then return nil end
-    return fn(p)
-  end,
-  [M.FnKind]=function(p, fnKind)
-    if p:skipEmpty() then return nil end
-    return Node(fnKind.fn(p), fnKind.kind)
-  end,
-  [M.Or]=function(p, or_)
-    if p:skipEmpty() then
-      if or_[1] == M.EOF then return p:eof() end
-      return nil
+local SPEC = {}
+local function parseSpec(p, spec)
+  return SPEC[ty(spec)](p, spec)
+end
+
+local function parseSeq(p, seq)
+  local out, pin = {}, nil
+  for i, spec in ipairs(seq) do
+    if     spec == M.PIN   then pin = true;  goto continue
+    elseif spec == M.UNPIN then pin = false; goto continue
     end
-    local lcs = p.lcs()
+    local t = parseSpec(p, spec)
+    if not t then return p:checkPin(pin, spec) end
+    add(out, t)
+    pin = (pin == nil) and true or pin
+  ::continue::end
+  return Node(out, seq.kind)
+end
+
+civ.update(SPEC, {
+  [civ.Tbl]=parseSeq,
+  [civ.Str]=function(p, keyword) return patImpl(p, keyword, keyword, true) end,
+  [M.Pat]=function(p, pat) return patImpl(p, pat.kind, pat.pattern, false) end,
+  [M.EmptyTy]=function() return M.EmptyNode end,
+  [M.EofTy]=function(p)
+    p:skipEmpty(); if p:isEof() then return M.EofNode end
+  end,
+  [civ.Fn]=function(p, fn) p:skipEmpty() return fn(p) end,
+  [M.FnKind]=function(p, fnKind) p:skipEmpty() return Node(fnKind.fn(p), fnKind.kind) end,
+  [M.Or]=function(p, or_)
+    p:skipEmpty()
+    local lcs = p:lcs()
     for _, spec in ipairs(or_) do
-      local t = M.parseSpec(p, spec)
+      local t = parseSpec(p, spec)
       if t then return Node(t, or_.kind) end
       p.setLcs(lcs)
     end
   end,
-  -- Sequence
-  [civ.Tbl]=function(p, seq)
-    local tokens, pin = {}, nil
-    for _, spec in ipairs(seq) do
-      if     spec == M.PIN   then pin = true;  goto continue
-      elseif spec == M.UNPIN then pin = false; goto continue
-      end
-
-      if p:skipEmpty() then
-        if spec == M.EOF then return p:eof() end
-        return p:checkPin(pin, spec)
-      end
-
-      local t = M.parseSpec(p, spec)
-      if not t then return p:checkPin(pin, spec) end
-      add(tokens, t)
-      pin = (pin == nil) and true or pin
-    ::continue::end
-    return Node(tokens, seq.kind)
+  [M.Many]=function(p, many)
+    local out = {kind=many.kind}
+    local seq = copy(many); seq.kind = nil
+    while true do
+      local t = parseSeq(p, seq)
+      if not t then break end
+      if ty(t) ~= M.Token and #t == 1 then add(out, t[1])
+      else add(out, t) end
+    end
+    if #out < many.min then return nil end
+    return out
   end,
-}
+})
+
+-- parse('hi + there', {Pat('\w+'), '+', Pat('\w+')})
+-- Returns tokens: 'hi', {'+', kind='+'}, 'there'
+M.parse=function(dat, spec)
+  local p = M.Parser.new(dat, spec.root)
+  return parseSpec(p, spec)
+end
+
+local function toStrTokens(dat, n)
+  if not n then return nil end
+  if SPEC[n] then
+    return n
+  end
+  if ty(n) == M.Token then
+    return Node(dat:sub(n.l, n.c, n.l2, n.c2), n.kind)
+  end
+  local out = {kind=n.kind}
+  for _, n in ipairs(n) do
+    add(out, toStrTokens(dat, n))
+  end
+  return out
+end; M.toStrTokens = toStrTokens
+
+local function defaultDat(dat)
+  if type(dat) == 'string' then return gap.Gap.new(dat)
+  else return dat end
+end
+
+-- Parse and convert into StrTokens. Str tokens are
+-- tables (lists) with the 'kind' key set.
+--
+-- This is primarily used for testing
+M.parseStrs=function(dat, spec)
+  local dat = defaultDat(dat)
+  local node = M.parse(dat, spec)
+  return toStrTokens(dat, node)
+end
+
+M.assertTokens=function(dat, spec, expect)
+  local result = M.parseStrs(dat, spec)
+  civ.assertEq(expect, result)
+end
 
 civ.methods(M.Parser, {
+__tostring=function() return 'Parser()' end,
+new=function(dat, root)
+  dat = defaultDat(dat)
+  return M.Parser{
+    dat=dat, l=1, c=1, line=dat:getLine(1), lines=dat:len(),
+    root=root or RootSpec{},
+  }
+end,
 parse=function(p, spec)
   local specFn = SPEC[ty(spec)]
   return specFn(p, spec)
 end,
-eof=function(p) return M.Token{
-  kind='EOF', l=p.l, c=1, l2=p.l, c2=1
-}end,
+isEof=function(p) return not p.line end,
 skipEmpty=function(p)
-  p.emptySpaceFn(p)
-  if not p.line then return true end
+  p.root.skipEmpty(p)
+  return p:isEof()
 end,
-lcs   =function(p) return {p.l, p.c, p.l2, p.c2, p.line} end,
-setLcs=function(p, lcs) p.l, p.c, p.l2, p.c2, p.line = lcs end,
+lcs   =function(p) return {p.l, p.c, p.line} end,
+setLcs=function(p, lcs) p.l, p.c, p.line = lcs end,
 
 parse=function(p, spec)
   return M.parseSpec(p, spec)
