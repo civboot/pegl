@@ -5,23 +5,32 @@ local pegl = require'pegl'
 local Pat, Or, Many = pegl.Pat, pegl.Or, pegl.Many
 local Empty, EOF = pegl.Empty, pegl.EOF
 
-local nil_ = 'nil'
-local bool = Or{'true', 'false'}
-local num = Or{kind='num',
+local M = {}
+
+M.nil_ = 'nil'
+M.bool = Or{'true', 'false'}
+M.num = Or{kind='num',
   Pat('0x[a-fA-F0-9]+', 'hex'),
   Pat('[0-9]+', 'dec'),
 }
 
-local quoteImpl = function(p, char, pat, kind)
+M.quoteImpl = function(p, char, pat, kind)
+  p:skipEmpty()
+  pnt('! quoteImpl', char, pat, kind)
   local l, c = p.l, p.c
-  if not p:consume(char) then return end
+  if not p:consume(char, true) then
+    pnt('!    no char')
+    return
+  end
   while true do
-    local t = p:consume(pat)
-    if t then
-      local _, bs = string.match(p.line:sub(t.c, t.c2), pat)
-      if C.isOdd(#bs) then
-        t.l, t.c, t.kind = l, c, kind
-        return t
+    local c1, c2 = p.line:find(pat, p.c)
+    pnt('! quoteImpl:', c1, c2)
+    if c2 then
+      p.c = c2 + 1
+      local bs = string.match(p.line:sub(c1, c2), pat)
+      pntf('! token bs=%s,%s  %s.%s  %s.%s', #bs, isOdd(#bs), l, c, p.l, c2)
+      if C.isEven(#bs) then
+        return Token{l=l, c=c, l2=p.l, c2=c2, kind=kind}
       end
     else
       if p.line:sub(#p.line) == '\\' then
@@ -32,8 +41,10 @@ local quoteImpl = function(p, char, pat, kind)
   end
 end
 
-local singleQuote = function(p) return quoteImpl(p, "'", "(\\*)'", 'singleQuote') end
-local doubleQuote = function(p) return quoteImpl(p, '"', '(\\*)"', 'doubleQuote') end
+M.singleQuote = function(p) return quoteImpl(p, "'", "(\\*)'", 'singleQuote') end
+M.doubleQuote = function(p) return quoteImpl(p, '"', '(\\*)"', 'doubleQuote') end
 
-local rawQuote = function(p)
+M.rawQuote = function(p)
 end
+
+return M

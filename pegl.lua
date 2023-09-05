@@ -164,9 +164,13 @@ M.parseStrs=function(dat, spec)
   return toStrTokens(dat, node)
 end
 
-M.assertTokens=function(dat, spec, expect)
+M.assertParse=function(dat, spec, expect)
   local result = M.parseStrs(dat, spec)
   civ.assertEq(expect, result)
+end
+
+M.assertParseError=function(dat, spec, expectErr)
+
 end
 
 civ.methods(M.Parser, {
