@@ -18,25 +18,53 @@ M.RootSpec = struct('RootSpec', {
   -- function(p): skip empty space
   -- default: skip whitespace
   {'skipEmpty', civ.Fn},
+  {'dbg', Bool, false},
 })
-M.RootSpec.__index = civ.listIndex
 
 M.Parser = struct('Parser', {
   'dat', 'l', 'c', 'line', 'lines',
   {'root', M.RootSpec},
+  {'dbgIndent', Int, 0},
 })
+
+M.fmtSpecBuf = function(b, s)
+  if type(s) == 'string' then
+    return add(b, string.format("%q", s))
+  end
+  if type(s) == 'function' then return civ.fmtFnBuf(b, s) end
+  if s.kind then
+    add(b, '<'); add(b, s.kind); add(b, '>')
+    return
+  end
+  add(b, civ.tyName(s)); add(b, '{ ')
+  for _, s in ipairs(s) do
+    M.fmtSpecBuf(b, s); add(b, ' ')
+  end; add(b, '}')
+end
+M.fmtSpec = function(s)
+  local b = {}; M.fmtSpecBuf(b, s); return table.concat(b, '')
+end
 
 M.Pat = civ.struct('Pat', {'pattern', 'kind'})
 M.Pat.__index = civ.listIndex
+M.Pat.__tostring = M.fmtSpec
 civ.constructor(M.Pat, function(ty_, pattern, kind)
   return setmetatable({kind=kind, pattern=pattern}, M.Pat)
 end)
 M.Or = civ.struct('Or', {{'kind', civ.Str, false}, })
 M.Or['#attr'] = {list = true}
 M.Or.__index = civ.listIndex
+M.Or.__tostring = M.fmtSpec
+
 M.Many = civ.struct('Many', {{'kind', civ.Str, false}, {'min', civ.Num, 0}})
 M.Many['#attr'] = {list = true}
 M.Many.__index = civ.listIndex
+M.Many.__tostring = M.fmtSpec
+
+M.Seq = civ.struct('Seq', {{'kind', civ.Str, false}})
+M.Seq['#attr'] = {list = true}
+M.Seq.__index = civ.listIndex
+M.Seq.__tostring = M.fmtSpec
 
 -- Used in Seq to "pin" or "unpin" the parser, affecting when errors
 -- are thrown.
@@ -45,12 +73,12 @@ M.UNPIN = {'UNPIN'}
 
 -- Denotes a missing node. When used in a spec simply returns Empty.
 -- Example: Or{Integer, String, Empty}
-M.EmptyTy = civ.struct('Empty', {})
+M.EmptyTy = civ.struct('Empty', {{'kind', Str, 'Empty'}})
 M.Empty = M.EmptyTy{}
 M.EmptyNode = {kind='Empty'}
 
 -- Denotes the end of the file
-M.EofTy = civ.struct('EOF', {})
+M.EofTy = civ.struct('EOF', {{'kind', Str, 'EOF'}})
 M.EOF = M.EofTy{}
 M.EofNode = {kind='EOF'}
 
@@ -75,7 +103,10 @@ end
 
 local function patImpl(p, kind, pattern, plain)
   local t = p:consume(pattern, plain)
-  if t then t.kind = kind end
+  if t then
+    p:dbgMatched(kind or pattern)
+    t.kind = kind
+  end
   return t
 end
 
@@ -83,20 +114,25 @@ local SPEC = {}
 
 local function parseSeq(p, seq)
   local out, pin = {}, nil
+  p:dbgEnter(seq)
   for i, spec in ipairs(seq) do
     if     spec == M.PIN   then pin = true;  goto continue
     elseif spec == M.UNPIN then pin = false; goto continue
     end
     local t = p:parse(spec)
-    if not t then return p:checkPin(pin, spec) end
+    if not t then
+      p:dbgMissed(spec)
+      p:dbgLeave()
+      return p:checkPin(pin, spec)
+    end
     add(out, t)
     pin = (pin == nil) and true or pin
   ::continue::end
+  p:dbgLeave()
   return Node(out, seq.kind)
 end
 
 civ.update(SPEC, {
-  [civ.Tbl]=parseSeq,
   [civ.Str]=function(p, keyword) return patImpl(p, keyword, keyword, true) end,
   [M.Pat]=function(p, pat) return patImpl(p, pat.kind, pat.pattern, false) end,
   [M.EmptyTy]=function() return M.EmptyNode end,
@@ -106,23 +142,35 @@ civ.update(SPEC, {
   [civ.Fn]=function(p, fn) p:skipEmpty() return fn(p) end,
   [M.Or]=function(p, or_)
     p:skipEmpty()
+    p:dbgEnter(or_)
     local state = p:state()
     for _, spec in ipairs(or_) do
       local t = p:parse(spec)
-      if t then return Node(t, or_.kind) end
-      p.setState(state)
+      if t then
+        p:dbgLeave()
+        return Node(t, or_.kind)
+      end
+      p:setState(state)
     end
+    p:dbgLeave()
   end,
+  [M.Seq]=parseSeq,
+  [civ.Tbl]=function(p, seq) return parseSeq(p, M.Seq(seq)) end,
   [M.Many]=function(p, many)
     local out = {kind=many.kind}
     local seq = copy(many); seq.kind = nil
+    p:dbgEnter(many)
     while true do
       local t = parseSeq(p, seq)
       if not t then break end
       if ty(t) ~= M.Token and #t == 1 then add(out, t[1])
       else add(out, t) end
     end
-    if #out < many.min then return nil end
+    if #out < many.min then
+      out = nil
+      p:dbgMissed(many, ' got count='..#out)
+    end
+    p:dbgLeave(many)
     return out
   end,
 })
@@ -158,19 +206,21 @@ end
 -- tables (lists) with the 'kind' key set.
 --
 -- This is primarily used for testing
-M.parseStrs=function(dat, spec)
+M.parseStrs=function(dat, spec, root)
   local dat = defaultDat(dat)
-  local node = M.parse(dat, spec)
+  local node = M.parse(dat, spec, root)
   return toStrTokens(dat, node)
 end
 
-M.assertParse=function(dat, spec, expect)
-  local result = M.parseStrs(dat, spec)
+M.assertParse=function(dat, spec, expect, dbg)
+  local result = M.parseStrs(dat, spec, RootSpec{dbg=dbg})
   civ.assertEq(expect, result)
 end
 
-M.assertParseError=function(dat, spec, expectErr)
-
+M.assertParseError=function(dat, spec, errPat, plain)
+  civ.assertError(
+    function() M.parse(dat, spec) end,
+    errPat, plain)
 end
 
 civ.methods(M.Parser, {
@@ -208,8 +258,8 @@ skipEmpty=function(p)
   p.root.skipEmpty(p)
   return p:isEof()
 end,
-state   =function(p) return {p.l, p.c, p.line} end,
-setState=function(p, state) p.l, p.c, p.line = state end,
+state   =function(p) return {l=p.l, c=p.c, line=p.line} end,
+setState=function(p, st) p.l, p.c, p.line = st.l, st.c, st.line end,
 
 parse=function(p, spec)
   return SPEC[ty(spec)](p, spec)
@@ -225,6 +275,27 @@ checkPin=function(p, pin, expect)
       "! Parse Error %s.%s, reached EOF but expected: %s",
       p.l, p.c, expect)
   end
+end,
+
+dbgEnter=function(p, spec)
+  if not p.root.dbg then return end
+  p:_dbg('ENTER:'..fmtSpec(spec))
+  p.dbgIndent = p.dbgIndent + 1
+end,
+dbgLeave=function(p)
+  if not p.root.dbg then return end
+  p.dbgIndent = p.dbgIndent - 1
+end,
+dbgMatched=function(p, spec)
+  if not p.root.dbg then return end
+  p:_dbg('MATCH:'..fmtSpec(spec))
+end,
+dbgMissed=function(p, spec, note)
+  if not p.root.dbg then return end
+  p:_dbg('MISS:'..fmtSpec(spec)..(note or ''))
+end,
+_dbg=function(p, msg)
+  pntf('%%%s %s (%s.%s)', string.rep('  ', p.dbgIndent), msg, p.l, p.c)
 end,
 })
 
