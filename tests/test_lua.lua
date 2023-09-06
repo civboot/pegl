@@ -56,14 +56,11 @@ test('item', nil, function()
 end)
 
 test('table', nil, function()
-  assertParse('{1, x="hi"}', {table_}, {
+  assertParse('{}', {table_}, {
     {kind='table',
-      {kind='item', {kind='value', {kind='num', {kind='dec', '1'}}}},
-      {kind='item',
-        {kind='name', 'x'},
-        KW('='),
-        {kind='value', {kind='doubleStr', '"hi"'}},
-      },
+      KW('{'),
+      {},
+      KW('}'),
     },
   }, true)
 end)

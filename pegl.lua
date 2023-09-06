@@ -27,44 +27,51 @@ M.Parser = struct('Parser', {
   {'dbgIndent', Int, 0},
 })
 
-M.fmtSpecBuf = function(b, s)
+M.fmtSpec = function(s, f)
   if type(s) == 'string' then
-    return add(b, string.format("%q", s))
+    return add(f, string.format("%q", s))
   end
-  if type(s) == 'function' then return civ.fmtFnBuf(b, s) end
+  if type(s) == 'function' then
+    return add(f, civ.fnToStr(s))
+  end
   if s.kind then
-    add(b, '<'); add(b, s.kind); add(b, '>')
+    add(f, '<'); add(f, s.kind); add(f, '>')
     return
   end
-  add(b, civ.tyName(s)); add(b, '{ ')
-  for _, s in ipairs(s) do
-    M.fmtSpecBuf(b, s); add(b, ' ')
-  end; add(b, '}')
+  add(f, civ.tyName(s));
+  f:levelEnter('{')
+  for i, sub in ipairs(s) do
+    M.fmtSpec(sub, f);
+    if i < #s then f:sep(' ') end
+  end
+  f:levelLeave('}')
 end
-M.fmtSpec = function(s)
-  local b = {}; M.fmtSpecBuf(b, s); return table.concat(b, '')
+M.specToStr = function(s, set)
+  local set = set or {}
+  if set.pretty == nil then set.pretty = true end
+  local f = civ.Fmt{set=set}; M.fmtSpec(s, f); return f:toStr()
 end
 
 M.Pat = civ.struct('Pat', {'pattern', 'kind'})
 M.Pat.__index = civ.listIndex
-M.Pat.__tostring = M.fmtSpec
+M.Pat.__fmt = M.fmtSpec
 civ.constructor(M.Pat, function(ty_, pattern, kind)
   return setmetatable({kind=kind, pattern=pattern}, M.Pat)
 end)
 M.Or = civ.struct('Or', {{'kind', civ.Str, false}, })
 M.Or['#attr'] = {list = true}
 M.Or.__index = civ.listIndex
-M.Or.__tostring = M.fmtSpec
+M.Or.__fmt = M.fmtSpec
 
 M.Many = civ.struct('Many', {{'kind', civ.Str, false}, {'min', civ.Num, 0}})
 M.Many['#attr'] = {list = true}
 M.Many.__index = civ.listIndex
-M.Many.__tostring = M.fmtSpec
+M.Many.__fmt = M.fmtSpec
 
 M.Seq = civ.struct('Seq', {{'kind', civ.Str, false}})
 M.Seq['#attr'] = {list = true}
 M.Seq.__index = civ.listIndex
-M.Seq.__tostring = M.fmtSpec
+M.Seq.__fmt = M.fmtSpec
 
 -- Used in Seq to "pin" or "unpin" the parser, affecting when errors
 -- are thrown.
@@ -161,7 +168,7 @@ civ.update(SPEC, {
   [M.Seq]=parseSeq,
   [civ.Tbl]=function(p, seq) return parseSeq(p, M.Seq(seq)) end,
   [M.Many]=function(p, many)
-    local out = {kind=many.kind}
+    local out = {}
     local seq = copy(many); seq.kind = nil
     p:dbgEnter(many)
     while true do
@@ -175,7 +182,7 @@ civ.update(SPEC, {
       p:dbgMissed(many, ' got count='..#out)
     end
     p:dbgLeave(many)
-    return out
+    return Node(out, many.kind)
   end,
 })
 
@@ -218,7 +225,7 @@ end
 
 M.assertParse=function(dat, spec, expect, dbg)
   local result = M.parseStrs(dat, spec, RootSpec{dbg=dbg})
-  civ.assertEq(expect, result)
+  civ.assertEq(expect, result, dbg)
 end
 
 M.assertParseError=function(dat, spec, errPat, plain)
@@ -283,7 +290,7 @@ end,
 
 dbgEnter=function(p, spec)
   if not p.root.dbg then return end
-  p:_dbg('ENTER:'..fmtSpec(spec))
+  p:_dbg('ENTER:'..civ.fmt(spec))
   p.dbgIndent = p.dbgIndent + 1
 end,
 dbgLeave=function(p)
@@ -292,11 +299,11 @@ dbgLeave=function(p)
 end,
 dbgMatched=function(p, spec)
   if not p.root.dbg then return end
-  p:_dbg('MATCH:'..fmtSpec(spec))
+  p:_dbg('MATCH:'..civ.fmt(spec))
 end,
 dbgMissed=function(p, spec, note)
   if not p.root.dbg then return end
-  p:_dbg('MISS:'..fmtSpec(spec)..(note or ''))
+  p:_dbg('MISS:'..civ.fmt(spec)..(note or ''))
 end,
 _dbg=function(p, msg)
   pntf('%%%s %s (%s.%s)', string.rep('  ', p.dbgIndent), msg, p.l, p.c)
