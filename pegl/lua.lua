@@ -56,17 +56,19 @@ M.bracketStr = function(p)
     end
   end
 end
-M.str   = Or{kind='str', singleStr, doubleStr, bracketStr}
+M.str   = Or{M.singleStr, M.doubleStr, M.bracketStr}
 M.value = Or{kind='value', M.nil_, M.bool, M.num, M.str, M.name}
 
 M.key  = Or{
   {'[', M.value, ']'},
   M.name,
 }
-M.item = Or{
+M.item = Or{kind='item',
   {UNPIN, M.key, '=', M.value},
   M.value,
 }
-M.tbl  = {'{', Many{M.item}, Or{','}, '}'}
+M.table_  = {kind='table', '{', Many{
+  M.item, Or{',', Empty},
+}, '}'}
 
 return M

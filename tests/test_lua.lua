@@ -16,7 +16,7 @@ test('easy', nil, function()
   })
 end)
 
-test('quote', nil, function()
+test('str', nil, function()
   assertParse(' "hi there" ', {doubleStr}, {
     {kind='doubleStr', '"hi there"'},
   })
@@ -26,6 +26,10 @@ test('quote', nil, function()
   assertParseError([[  'yo\'ya"  ]], {singleStr},
     'Expected singleStr, reached end of line'
   )
+
+  assertParse([[  'single'  ]], {str}, {
+    {kind='singleStr', [['single']]}
+  }, true)
 end)
 
 test('key', nil, function()
@@ -35,6 +39,33 @@ test('key', nil, function()
   assertParse('[hi]', {key},   {
     {KW('['), {kind='value', {'hi', kind='name'}}, KW(']')},
   })
-  assertParse('hi', {item},   { {kind='value', {kind='name', 'hi'}} })
 end)
+
+test('item', nil, function()
+  assertParse('4', {item},   {
+    {kind='item', {kind='value', {kind='num', {kind='dec', '4'}}}},
+  })
+
+  assertParse('x="hi"', {item},   {
+    {kind='item',
+      {kind='name', 'x'},
+      KW('='),
+      {kind='value', {kind='doubleStr', '"hi"'}},
+    },
+  })
+end)
+
+test('table', nil, function()
+  assertParse('{1, x="hi"}', {table_}, {
+    {kind='table',
+      {kind='item', {kind='value', {kind='num', {kind='dec', '1'}}}},
+      {kind='item',
+        {kind='name', 'x'},
+        KW('='),
+        {kind='value', {kind='doubleStr', '"hi"'}},
+      },
+    },
+  }, true)
+end)
+
 

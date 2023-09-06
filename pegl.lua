@@ -97,7 +97,11 @@ end
 
 -- Create node with optional kind
 local function Node(t, kind)
-  if t and kind then return {t, kind=kind} end
+  if t and kind then
+    if type(t) == 'table' and not t.kind then
+      t.kind = kind
+    else t = {t, kind=kind} end
+  end
   return t
 end
 
