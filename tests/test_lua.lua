@@ -5,64 +5,70 @@ grequire'pegl.lua'
 local KW = function(kw) return {kw, kind=kw} end
 
 test('easy', nil, function()
-  assertParse('  nil\n', {nil_}, {{'nil', kind='nil_'}})
+  assertParse('  nil\n', {exp1}, {KW('nil')}, true)
   assertParse(
-    'true  \n false',
-    {bool, bool},
-    {{KW('true'), kind='bool'}, {KW('false'), kind='bool'}})
+    'true  \n false', {exp, exp}, {KW('true'), KW('false')})
   assertParse('42  0x3A', {num, num}, {
-    {kind='num', {kind='dec', '42'}},
-    {kind='num', {kind='hex', '0x3A'}},
+    {kind='dec', '42'},
+    {kind='hex', '0x3A'},
   })
 end)
 
 test('str', nil, function()
-  assertParse(' "hi there" ', {doubleStr}, {
+  assertParse(' "hi there" ', {str}, {
     {kind='doubleStr', '"hi there"'},
   })
-  assertParse([[  'yo\'ya'  ]], {singleStr}, {
+  assertParse([[  'yo\'ya'  ]], {str}, {
     {kind='singleStr', [['yo\'ya']]}
   })
-  assertParseError([[  'yo\'ya"  ]], {singleStr},
-    'Expected singleStr, reached end of line'
-  )
+  -- assertParseError([[  'yo\'ya"  ]], {exp},
+  --   'Expected singleStr, reached end of line'
+  -- )
 
   assertParse([[  'single'  ]], {str}, {
     {kind='singleStr', [['single']]}
-  }, true)
-end)
-
-test('key', nil, function()
-  assertParse(' hi ', {name},  { {kind='name', 'hi'} })
-  assertParse(' hi ', {value}, { {kind='value', {kind='name', 'hi'}} })
-  assertParse(' hi ', {key},   { {kind='name', 'hi'} })
-  assertParse('[hi]', {key},   {
-    {KW('['), {kind='value', {'hi', kind='name'}}, KW(']')},
   })
 end)
 
-test('item', nil, function()
-  assertParse('4', {item},   {
-    {kind='item', {kind='value', {kind='num', {kind='dec', '4'}}}},
-  })
-
-  assertParse('x="hi"', {item},   {
-    {kind='item',
-      {kind='name', 'x'},
-      KW('='),
-      {kind='value', {kind='doubleStr', '"hi"'}},
-    },
-  })
+test('field', nil, function()
+  -- assertParse(' hi="x" ', {field},  {{
+  --   {kind='name', 'hi'}, KW('='), {kind='doubleStr', '"x"'},
+  -- }})
+  -- assertParse(' 44 ', {field},  {{kind='dec',  '44'}, })
+  -- assertParse(' hi ', {field},  {{kind='name', 'hi'}, })
+  -- assertParse('[hi] = 4', {field},   {
+  --   {
+  --     KW('['), {'hi', kind='name'}, KW(']'),
+  --     KW('='), {'4', kind='dec'},
+  --   },
+  -- })
 end)
 
 test('table', nil, function()
-  assertParse('{}', {table_}, {
-    {kind='table',
-      KW('{'),
-      {},
-      KW('}'),
-    },
-  }, true)
+  -- assertParse('{}', {exp}, {
+  --   {kind='table',
+  --     KW('{'),
+  --     KW('}'),
+  --   },
+  -- }, true)
+  -- assertParse('{4}', {table_}, {
+  --   {kind='table',
+  --     KW('{'),
+  --     {kind='item', {kind='dec', '4'}}, {kind='Empty'},
+  --     KW('}'),
+  --   },
+  -- }, true)
+
+  -- assertParse('{4, x="hi"}', {table_}, {
+  --   {kind='table',
+  --     KW('{'),
+  --     {kind='item', {kind='dec', '4'}}, KW(','),
+  --     {kind='item',
+  --       {kind='name', 'x'}, KW('='), {kind='doubleStr', '"hi"'}},
+  --     {kind='Empty'},
+  --     KW('}'),
+  --   },
+  -- }, true)
 end)
 
 

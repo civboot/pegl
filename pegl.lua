@@ -34,8 +34,8 @@ M.fmtSpec = function(s, f)
   if type(s) == 'function' then
     return add(f, civ.fnToStr(s))
   end
-  if s.kind then
-    add(f, '<'); add(f, s.kind); add(f, '>')
+  if s.name or s.kind then
+    add(f, '<'); add(f, s.name or s.kind); add(f, '>')
     return
   end
   add(f, civ.tyName(s));
@@ -52,41 +52,50 @@ M.specToStr = function(s, set)
   local f = civ.Fmt{set=set}; M.fmtSpec(s, f); return f:toStr()
 end
 
-M.Pat = civ.struct('Pat', {'pattern', 'kind'})
+M.Pat = civ.struct('Pat', {'pattern', 'kind', 'name'})
 M.Pat.__index = civ.listIndex
 M.Pat.__fmt = M.fmtSpec
 civ.constructor(M.Pat, function(ty_, pattern, kind)
   return setmetatable({kind=kind, pattern=pattern}, M.Pat)
 end)
-M.Or = civ.struct('Or', {{'kind', civ.Str, false}, })
+local FIELDS = {
+  {'kind', civ.Str, false},
+  {'name', civ.Str, false}, -- used only for debugging
+}
+M.Or = civ.struct('Or', FIELDS)
 M.Or['#attr'] = {list = true}
 M.Or.__index = civ.listIndex
 M.Or.__fmt = M.fmtSpec
 
-M.Many = civ.struct('Many', {{'kind', civ.Str, false}, {'min', civ.Num, 0}})
+M.Maybe = function(spec) return M.Or{spec, M.Empty} end
+
+M.Many = civ.struct('Many', {
+  {'kind', civ.Str, false}, {'min', civ.Num, 0},
+  {'name', civ.Str, false},
+})
 M.Many['#attr'] = {list = true}
 M.Many.__index = civ.listIndex
 M.Many.__fmt = M.fmtSpec
 
-M.Seq = civ.struct('Seq', {{'kind', civ.Str, false}})
+M.Seq = civ.struct('Seq', FIELDS)
 M.Seq['#attr'] = {list = true}
 M.Seq.__index = civ.listIndex
 M.Seq.__fmt = M.fmtSpec
 
 -- Used in Seq to "pin" or "unpin" the parser, affecting when errors
 -- are thrown.
-M.PIN   = {'PIN'}
-M.UNPIN = {'UNPIN'}
+M.PIN   = {name='PIN'}
+M.UNPIN = {name='UNPIN'}
 
 -- Denotes a missing node. When used in a spec simply returns Empty.
 -- Example: Or{Integer, String, Empty}
-M.EmptyTy = civ.struct('Empty', {{'kind', Str, 'Empty'}})
-M.Empty = M.EmptyTy{}
+M.EmptyTy = civ.struct('Empty', FIELDS)
+M.Empty = M.EmptyTy{kind='Empty'}
 M.EmptyNode = {kind='Empty'}
 
 -- Denotes the end of the file
-M.EofTy = civ.struct('EOF', {{'kind', Str, 'EOF'}})
-M.EOF = M.EofTy{}
+M.EofTy = civ.struct('EOF', FIELDS)
+M.EOF = M.EofTy{kind='EOF'}
 M.EofNode = {kind='EOF'}
 
 -- Skip all whitespace
@@ -123,6 +132,24 @@ end
 
 local SPEC = {}
 
+local UNPACK_SPECS = Set{
+  M.Tbl, M.Seq, M.Many,
+}
+local function unpackResult(spec, t)
+  return (
+    UNPACK_SPECS[ty(spec)]
+    and ty(t) ~= M.Token
+    and not rawget(spec, 'kind')
+  )
+end
+
+local function _seqAdd(out, spec, t)
+  if unpackResult(spec, t) then
+    pnt('! unpack: ', spec, t)
+    extend(out, t)
+  else add(out, t) end
+end
+
 local function parseSeq(p, seq)
   local out, pin = {}, nil
   p:dbgEnter(seq)
@@ -136,7 +163,7 @@ local function parseSeq(p, seq)
       p:dbgLeave()
       return p:checkPin(pin, spec)
     end
-    add(out, t)
+    _seqAdd(out, spec, t)
     pin = (pin == nil) and true or pin
   ::continue::end
   p:dbgLeave()
@@ -175,7 +202,7 @@ civ.update(SPEC, {
       local t = parseSeq(p, seq)
       if not t then break end
       if ty(t) ~= M.Token and #t == 1 then add(out, t[1])
-      else add(out, t) end
+      else _seqAdd(out, many, t) end
     end
     if #out < many.min then
       out = nil
