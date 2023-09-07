@@ -262,7 +262,11 @@ end
 
 M.assertParse=function(dat, spec, expect, dbg)
   local result = M.parseStrs(dat, spec, RootSpec{dbg=dbg})
-  civ.assertEq(expect, result, dbg)
+  if expect ~= result then
+    civ.assertEq(
+      fmt(expect, {pretty=true}),
+      fmt(result, {pretty=true}))
+  end
 end
 
 M.assertParseError=function(dat, spec, errPat, plain)

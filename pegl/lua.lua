@@ -11,7 +11,7 @@ local Pat, Or, Not, Many = pegl.Pat, pegl.Or, pegl.Not, pegl.Many
 local Empty, EOF = pegl.Empty, pegl.EOF
 local PIN, UNPIN = pegl.PIN, pegl.UNPIN
 
-local stmt = Or{}
+local stmt = Or{kind='stmt'}
 
 -- TODO: need decimal notation
 local num = Or{name='num',
@@ -19,10 +19,11 @@ local num = Or{name='num',
   Pat('[0-9]+', 'dec'),
 }
 
-local notKey = Not{Or{
+local key = Or{name='key',
   'end', 'if', 'else', 'elseif', 'while', 'do', 'repeat', 'local', 'until',
-  'then', 'function',
-}}
+  'then', 'function', 'return',
+}
+local notKey = Not{key}
 local name = {UNPIN, notKey, Pat('[%a_]%w*', 'name')}
 
 -- uniary and binary operations
@@ -72,7 +73,8 @@ extend(exp,      {exp1, Many{op2, exp1}, Many{postexp}})
 -- laststat ::= return [explist1]  |  break
 -- block    ::= {stat [`;´]} [laststat[`;´]]
 local explist  = {exp, Many{',', exp}}
-local laststmt = Or{{'return', explist, kind='return'}, 'break'}
+local laststmt = Or{name='laststmt',
+  {'return', explist, kind='return'}, 'break'}
 local block = {name='block',
   Many{stmt, Maybe(';')},
   Maybe{laststmt, Maybe(';')}
@@ -123,7 +125,7 @@ local bracketStr     = function(p) return bracketStrImpl(p, '') end
 local bracketComment = function(p) return bracketStrImpl(p, '%-%-') end
 local comment = Or{bracketComment, Pat('%-%-.*'), kind='comment'}
 local str     = Or{singleStr, doubleStr, bracketStr}
-add(exp1, comment)
+table.insert(exp1, 1, comment)
 add(exp1, str)
 
 
@@ -139,7 +141,8 @@ local field = Or{kind='field',
 }
 -- fieldlist ::= field {fieldsep field} [fieldsep]
 -- tableconstructor ::= `{´ [fieldlist] `}´
-local fieldlist = {name='fieldlist', field, Many{fieldsep, field}, Maybe(fieldsep)}
+local fieldlist = {name='fieldlist',
+  field, Many{UNPIN, fieldsep, field}, Maybe(fieldsep)}
 local tbl = {kind='table', '{', Maybe(fieldlist), '}'}
 add(exp1, tbl)
 
@@ -168,6 +171,8 @@ local else_    = {'else', block, kind='else'}
 local funcname = {name, Many{'.', name}, Maybe{':', name}, kind='funcname'}
 
 extend(stmt, {
+  comment,
+
   -- do block end
   {'do', block, 'end', kind='do'},
 
@@ -196,14 +201,14 @@ extend(stmt, {
   {'function', funcname, fnbody, kind='fndef'},
 
   -- local function Name funcbody
-  {'local', 'function', name, fnbody, kind='fnlocal'},
+  {UNPIN, 'local', 'function', PIN, name, fnbody, kind='fnlocal'},
 
   -- local namelist [`=´ explist1]
   {'local', namelist, Maybe{'=', explist}, kind='varlocal'},
 
   -- varlist `=´ explist
   -- Check pass: check that all items in first explist are var-like
-  {UNPIN, explist, '=', explist, kind='varset'},
+  {UNPIN, explist, '=', PIN, explist, kind='varset'},
 
   -- catch-all exp
   -- Check pass: only a fncall is actually valid syntax
@@ -211,7 +216,7 @@ extend(stmt, {
 })
 
 return {
-  src=Many{stmt},
+  src={Many{stmt}, EOF},
   exp=exp, exp1=exp1, stmt=stmt,
   num=num, str=str,
   field=field,

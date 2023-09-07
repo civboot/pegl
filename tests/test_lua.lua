@@ -3,7 +3,9 @@ grequire'pegl'
 grequire'pegl.lua'
 
 local KW = function(kw) return {kw, kind=kw} end
-local EMPTY = {kind='Empty'}
+local EMPTY, EOF = {kind='Empty'}, {kind='EOF'}
+
+local N = function(n) return {kind='name', n} end
 
 test('easy', nil, function()
   assertParse('42  0x3A', {num, num}, {
@@ -71,12 +73,55 @@ test('fnValue', nil, function()
   })
 end)
 
+test('require', nil, function()
+  assertParse('local F = require"foo"', src, {
+    { kind='varlocal',
+      KW('local'),
+      {kind='name', 'F'},
+      KW('='),
+      {kind='name', 'require'},
+      {kind='doubleStr', '"foo"'},
+    },
+    EOF,
+  })
+end)
+
+test('src', nil, function()
+  local code1 = 'a.b = function(y, z) return y + z end'
+  local expect1 = {
+    {kind='varset',
+      N'a', KW'.', N'b', KW'=', {kind='fnvalue',
+        KW'function', KW'(', N'y', KW',', N'z', EMPTY, KW')',
+        {kind='return', KW'return', N'y', KW'+', N'z'},
+        EMPTY,
+        KW'end',
+      },
+    },
+    EOF,
+  }
+  assertParse(code1, src, expect1)
+
+  local code2 = code1..'\nx = y'
+  local expect2 = copy(expect1)
+  table.remove(expect2) -- EOF
+  extend(expect2, {
+    {kind='varset',
+      N'x', KW'=', N'y',
+    },
+    EOF,
+  })
+  assertParse(code2, src, expect2)
+
+end)
+
 local function testLuaPath(path)
   local f = io.open('pegl.lua', 'r')
   local text = f:read'*a'; f:close()
+  assertParse(text, src, {
+  }, true)
 
 end
 
 test('parseSrc', nil, function()
-
+  -- testLuaPath('./pegl.lua')
 end)
