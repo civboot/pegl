@@ -21,38 +21,56 @@ local num = Or{
 -- uniary and binary operations
 op1 = Or{'-', 'not', '#'}
 op2 = Or{
+  -- Technically only a `name` can be after `.`
+  -- check in later pass if necessary.
+  '.',
+
+  -- standard binops
   '+'  ,  '-'   ,  '*'  ,  '/'   ,  '^'   ,  '%'   ,  '..'  ,
   '<'  ,  '<='  ,  '>'  ,  '>='  ,  '=='  ,  '~='  ,
   'and'  ,  'or',
-  -- Technically only a `name` can be after `.`,
-  -- check in lint pass if necessary.
-  '.',
 }
 
--- We do exp a little different from the BNF. We create an `exp1`
--- which is a non-operated expression and then have `exp` implement a list
--- of expression operations.
+-----------------
+-- Expression (exp)
+
+-- We do exp a little different from the BNF. We create an `exp1` which is a
+-- non-operated expression and then have `exp` implement a list of expression
+-- operations.
 --
 -- The BNF uses a (confusing IMO) recursive definition which weaves
--- exp with var and prefixexp. Our definition deviates significantly.
+-- exp with var and prefixexp. Our definition deviates significantly because
+-- you cannot do non-progressive recursion in recursive-descent (or PEG):
+-- recursion is fine ONLY if you make "progress" (attempt to parse some tokens)
+-- before you recurse.
 --
--- exp1 ::=  nil       |  false    |  true       |  Number            |
---           String    |  `...´    | tbl         |  function          |
---           prefixexp |    exp binop exp        |  unop exp
+-- We don't have quite as much of a "complete" parsing here: a checking pass
+-- will need to ensure that when you use `exp = exp` that the left-hand `exp`
+-- is actually a valid variable (exp . name | exp [ exp ] | name).
+--
+-- exp1 ::=  nil       |  false      |  true       |  ...        |
+--           Number    | unop exp    | String      | tbl         |
+--           function  | name
 local exp1 = Or{name='exp', 'nil', 'false', 'true', '...', num};
 add(exp1, {op1, exp1})
 
-local args = Or{} -- function args, i.e. a function call
-local exp = {exp1, Many{op2, exp1}, Many{args}}
-local explist = {Many{exp, ','}, exp}
+local exp = {name='exp'}    -- defined just below
+add(exp1, {'(', exp, ')', kind='group'})
+
+local call     = Or{name='call'} -- function call (defined much later)
+local methcall = {':', name, call, kind='methcall'}
+local index    = {'[', exp, ']', kind='index'}
+local postexp  = Or{methcall, index, call}
+extend(exp,      {exp1, Many{op2, exp1}, Many{postexp}})
 
 -- laststat ::= return [explist1]  |  break
 -- block    ::= {stat [`;´]} [laststat[`;´]]
-local laststmt = Or{{'return', explist}, 'break'}
-local block = {name='block', stmt, Maybe(';'), laststmt, Maybe(';')}
+local explist  = {exp, Many{',', exp}}
+local laststmt = Or{{'return', explist, kind='return'}, 'break'}
+local block = {stmt, Maybe(';'), laststmt, Maybe(';'), name='block'}
 
 -----------------
--- String (+exp)
+-- String (+exp1)
 
 local quoteImpl = function(p, char, pat, kind)
   p:skipEmpty()
@@ -93,113 +111,92 @@ local bracketStr = function(p)
   end
 end
 local str   = Or{singleStr, doubleStr, bracketStr}
--- add(exp, str)
-
--- -----------------
--- -- Table (+exp)
--- 
--- -- field ::= `[´ exp `]´ `=´ exp  |  Name `=´ exp  |  exp
--- local fieldsep = Or{',', ';'}
--- local field = Or{name='field',
---   {UNPIN, '[', exp, ']', '=', exp},
---   {UNPIN, name, '=', exp},
---   exp,
--- }
--- -- fieldlist ::= field {fieldsep field} [fieldsep]
--- -- tableconstructor ::= `{´ [fieldlist] `}´
--- local fieldlist = {name='fieldlist', field, Many{fieldsep, field}, Maybe(fieldsep)}
--- local tbl = {kind='tbl', '{', fieldlist, '}'}
--- add(exp, tbl)
--- 
--- -----------------
--- -- Function (+exp)
--- 
--- -- namelist ::= Name {`,´ Name}
--- -- parlist1 ::= namelist [`,´ `...´]  |  `...´
--- -- funcbody ::= `(´ [parlist1] `)´ block end
--- -- function ::= `function` funcbody
--- local namelist = {name, Many{',', name}}
--- local parlist = Or{{namelist, Maybe{',', '...'}}, '...'}
--- local fnbody = {'(', parlist, ')', block, 'end'}
--- local fn = {'function', fnbody, kind='fn'}
--- add(exp, fn)
+add(exp1, str)
 
 -----------------
--- prefixexp (+exp)
--- args ::=  `(´ [explist1] `)´  |  tableconstructor  |  String
--- local args = Or{{'(', explist, ')'}, tbl, str}
+-- Table (+exp1)
 
--- local prefixexp = Or{
---   {UNPIN, exp, '.', PIN, name},
---   {'(', exp, ')'},
---   {UNPIN, exp, '[', PIN, exp, ']'},
--- }
--- 
--- -- var ::=  Name  |  prefixexp `[´ exp `]´  |  prefixexp `.´ Name
--- local prefixexp = Or{name='prefixexp'}
--- local var = Or{name='var',
---   name,
---   {prefixexp, '[', exp, ']'},
---   {prefixexp, '.', name}
--- }
--- 
--- -- varlist1 ::= var {`,´ var}
--- local varlist = {name='varlist', var, Many{',', var}}
+-- field ::= `[´ exp `]´ `=´ exp  |  Name `=´ exp  |  exp
+local fieldsep = Or{',', ';'}
+local field = Or{name='field',
+  {UNPIN, '[', exp, ']', '=', exp},
+  {UNPIN, name, '=', exp},
+  exp,
+}
+-- fieldlist ::= field {fieldsep field} [fieldsep]
+-- tableconstructor ::= `{´ [fieldlist] `}´
+local fieldlist = {name='fieldlist', field, Many{fieldsep, field}, Maybe(fieldsep)}
+local tbl = {kind='tbl', '{', fieldlist, '}'}
+add(exp1, tbl)
 
--- functioncall ::=  prefixexp args  |  prefixexp `:´ Name args
--- local fncall = Or{name='fncall',
---   {prefixexp, args}, {prefixexp, ':', name, args}
--- }
--- 
--- -- prefixexp ::= var  |  functioncall  |  `(´ exp `)´
--- civ.extend(prefixexp, {var, fncall, {'(', exp, ')'}})
--- add(exp, prefixexp)
+-- fully define function call
+-- call ::=  `(´ [explist1] `)´  |  tableconstructor  |  String
+extend(call, {{'(', explist, ')'}, tbl, str})
 
--- -----------------
--- -- Statement (stmt)
--- 
--- -- varlist1 `=´ explist1
--- add(stmt, {varlist, '=', explist, kind='varset'})
--- 
--- -- functioncall
--- add(stmt, fncall)
--- 
--- -- do block end
--- add(stmt, {'do', block, 'end', kind='do'})
--- 
--- -- while exp do block end
--- add(stmt, {'while', exp, 'do', block, 'end', kind='while'})
--- 
--- -- repeat block until exp
--- add(stmt, {'repeat', block, 'until', exp, kind='repeat'})
--- 
--- -- if exp then block {elseif exp then block} [else block] end
--- local elseif_ = {'elseif', exp, 'then', block}
--- add(stmt, {kind='if',
---   'if', exp, 'then', block, Many{elseif_}, Maybe{'else', block},
--- })
--- 
--- -- for Name `=´ exp `,´ exp [`,´ exp] do block end
--- add(stmt, {kind='fori',
---   'for', name, '=', exp, ',', exp, Maybe{',', exp}, 'do',
---   block, 'end',
--- })
--- 
--- -- for namelist in explist1 do block end
--- add(stmt, {kind='for',
---   'for', namelist, 'in', explist, 'do', block, 'end'
--- })
--- 
--- -- funcname ::= Name {`.´ Name} [`:´ Name]
--- -- function funcname funcbody
--- local funcname = {name, Many{'.', name}, Maybe{':', name}}
--- add(stmt, {'function', funcname, fnbody, kind='fndef'})
--- 
--- -- local function Name funcbody
--- add(stmt, {'local', 'function', name, fnbody})
--- 
--- -- local namelist [`=´ explist1]
--- add(stmt, {'local', namelist, '=', explist})
+-----------------
+-- Function (+exp1)
+
+-- namelist ::= Name {`,´ Name}
+-- parlist1 ::= namelist [`,´ `...´]  |  `...´
+-- funcbody ::= `(´ [parlist1] `)´ block end
+-- function ::= `function` funcbody
+local namelist = {name, Many{',', name}}
+local parlist = Or{{namelist, Maybe{',', '...'}}, '...'}
+local fnbody = {'(', parlist, ')', block, 'end'}
+local fn = {'function', fnbody, kind='fn'}
+add(exp1, fn)
+add(exp1, name)
+
+
+-----------------
+-- Statement (stmt)
+
+local elseif_  = {'elseif', exp, 'then', block, kind='elseif'}
+local else_    = {'else', block, kind='else'}
+local funcname = {name, Many{'.', name}, Maybe{':', name}, kind='funcname'}
+
+extend(stmt, {
+  -- do block end
+  {'do', block, 'end', kind='do'},
+
+  -- while exp do block end
+  {'while', exp, 'do', block, 'end', kind='while'},
+
+  -- repeat block until exp
+  {'repeat', block, 'until', exp, kind='repeat'},
+
+  -- if exp then block {elseif exp then block} [else block] end
+  {'if', exp, 'then', block, Many{elseif_}, else_, kind='if'},
+
+  -- for Name `=´ exp `,´ exp [`,´ exp] do block end
+  {kind='fori',
+    UNPIN, 'for', name, '=', PIN, exp, ',', exp, Maybe{',', exp}, 'do',
+    block, 'end',
+  },
+
+  -- for namelist in explist1 do block end
+  {kind='for',
+    'for', namelist, 'in', explist, 'do', block, 'end'
+  },
+
+  -- funcname ::= Name {`.´ Name} [`:´ Name]
+  -- function funcname funcbody
+  {'function', funcname, fnbody, kind='fndef'},
+
+  -- local function Name funcbody
+  {'local', 'function', name, fnbody, kind='fnlocal'},
+
+  -- local namelist [`=´ explist1]
+  {'local', namelist, Maybe{'=', explist}, kind='varlocal'},
+
+  -- varlist `=´ explist
+  -- Check pass: check that all items in first explist are var-like
+  {UNPIN, explist, '=', explist, kind='varset'},
+
+  -- catch-all exp
+  -- Check pass: only a fncall is actually valid syntax
+  {exp, kind='stmtexp'},
+})
 
 return {
   exp=exp, exp1=exp1, stmt=stmt,

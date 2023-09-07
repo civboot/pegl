@@ -5,13 +5,16 @@ grequire'pegl.lua'
 local KW = function(kw) return {kw, kind=kw} end
 
 test('easy', nil, function()
-  assertParse('  nil\n', {exp1}, {KW('nil')}, true)
-  assertParse(
-    'true  \n false', {exp, exp}, {KW('true'), KW('false')})
   assertParse('42  0x3A', {num, num}, {
     {kind='dec', '42'},
     {kind='hex', '0x3A'},
   })
+  assertParse('  nil\n', {exp1}, {KW('nil')})
+  assertParse(
+    'true  \n false', {exp1, exp1}, {KW('true'), KW('false')})
+
+  -- use exp instead
+  assertParse('  nil\n', {exp}, {KW('nil')}, true)
 end)
 
 test('str', nil, function()
@@ -21,9 +24,9 @@ test('str', nil, function()
   assertParse([[  'yo\'ya'  ]], {str}, {
     {kind='singleStr', [['yo\'ya']]}
   })
-  -- assertParseError([[  'yo\'ya"  ]], {exp},
-  --   'Expected singleStr, reached end of line'
-  -- )
+  assertParseError([[  'yo\'ya"  ]], {exp},
+    'Expected singleStr, reached end of line'
+  )
 
   assertParse([[  'single'  ]], {str}, {
     {kind='singleStr', [['single']]}
