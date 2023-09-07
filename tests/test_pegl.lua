@@ -30,7 +30,7 @@ test('many', nil, function()
   assertParse(
     'hi there bob',
     Seq{Many{Pat('%w+'), kind='words'}},
-    {{'hi', 'there', 'bob', kind='words'}})
+    {'hi', 'there', 'bob', kind='words'})
 end)
 
 test('pin', nil, function()

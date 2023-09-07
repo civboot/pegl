@@ -7,20 +7,27 @@ local civ = require'civ'
 local pegl = require'pegl'
 local add = table.insert
 
-local Pat, Or, Many = pegl.Pat, pegl.Or, pegl.Many
+local Pat, Or, Not, Many = pegl.Pat, pegl.Or, pegl.Not, pegl.Many
 local Empty, EOF = pegl.Empty, pegl.EOF
 local PIN, UNPIN = pegl.PIN, pegl.UNPIN
 
 local stmt = Or{}
-local name = Pat('%w+', 'name')
-local num = Or{
+
+-- TODO: need decimal notation
+local num = Or{name='num',
   Pat('0x[a-fA-F0-9]+', 'hex'),
   Pat('[0-9]+', 'dec'),
 }
 
+local notKey = Not{Or{
+  'end', 'if', 'else', 'elseif', 'while', 'do', 'repeat', 'local', 'until',
+  'then', 'function',
+}}
+local name = {UNPIN, notKey, Pat('[%a_]%w*', 'name')}
+
 -- uniary and binary operations
-op1 = Or{'-', 'not', '#'}
-op2 = Or{
+op1 = Or{name='op1', '-', 'not', '#'}
+op2 = Or{name='op2',
   -- Technically only a `name` can be after `.`
   -- check in later pass if necessary.
   '.',
@@ -51,7 +58,7 @@ op2 = Or{
 -- exp1 ::=  nil       |  false      |  true       |  ...        |
 --           Number    | unop exp    | String      | tbl         |
 --           function  | name
-local exp1 = Or{name='exp', 'nil', 'false', 'true', '...', num};
+local exp1 = Or{name='exp1', 'nil', 'false', 'true', '...', num};
 add(exp1, {op1, exp1})
 
 local exp = {name='exp'}    -- defined just below
@@ -67,7 +74,10 @@ extend(exp,      {exp1, Many{op2, exp1}, Many{postexp}})
 -- block    ::= {stat [`;´]} [laststat[`;´]]
 local explist  = {exp, Many{',', exp}}
 local laststmt = Or{{'return', explist, kind='return'}, 'break'}
-local block = {stmt, Maybe(';'), laststmt, Maybe(';'), name='block'}
+local block = {name='block',
+  Many{stmt, Maybe(';')},
+  Maybe{laststmt, Maybe(';')}
+}
 
 -----------------
 -- String (+exp1)
@@ -118,7 +128,7 @@ add(exp1, str)
 
 -- field ::= `[´ exp `]´ `=´ exp  |  Name `=´ exp  |  exp
 local fieldsep = Or{',', ';'}
-local field = Or{name='field',
+local field = Or{kind='field',
   {UNPIN, '[', exp, ']', '=', exp},
   {UNPIN, name, '=', exp},
   exp,
@@ -126,7 +136,7 @@ local field = Or{name='field',
 -- fieldlist ::= field {fieldsep field} [fieldsep]
 -- tableconstructor ::= `{´ [fieldlist] `}´
 local fieldlist = {name='fieldlist', field, Many{fieldsep, field}, Maybe(fieldsep)}
-local tbl = {kind='tbl', '{', fieldlist, '}'}
+local tbl = {kind='table', '{', Maybe(fieldlist), '}'}
 add(exp1, tbl)
 
 -- fully define function call
@@ -141,10 +151,10 @@ extend(call, {{'(', explist, ')'}, tbl, str})
 -- funcbody ::= `(´ [parlist1] `)´ block end
 -- function ::= `function` funcbody
 local namelist = {name, Many{',', name}}
-local parlist = Or{{namelist, Maybe{',', '...'}}, '...'}
+local parlist = Or{{namelist, Maybe{',', '...'}}, '...', Empty}
 local fnbody = {'(', parlist, ')', block, 'end'}
-local fn = {'function', fnbody, kind='fn'}
-add(exp1, fn)
+local fnvalue = {'function', fnbody, kind='fnvalue'}
+add(exp1, fnvalue)
 add(exp1, name)
 
 
@@ -201,6 +211,5 @@ extend(stmt, {
 return {
   exp=exp, exp1=exp1, stmt=stmt,
   num=num, str=str,
-  fncall=fncall,
   field=field,
 }

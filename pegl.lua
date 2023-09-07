@@ -13,6 +13,10 @@ M.Token = struct('Token', {
   {'l', Int}, {'c', Int},
   {'l2', Int}, {'c2', Int},
 })
+M.Token.__fmt = function(t, f)
+  if t.kind then extend(f, {'Token(', t.kind, ')'})
+  else civ.tblFmt(t, f) end
+end
 
 M.RootSpec = struct('RootSpec', {
   -- function(p): skip empty space
@@ -52,35 +56,31 @@ M.specToStr = function(s, set)
   local f = civ.Fmt{set=set}; M.fmtSpec(s, f); return f:toStr()
 end
 
-M.Pat = civ.struct('Pat', {'pattern', 'kind', 'name'})
-M.Pat.__index = civ.listIndex
-M.Pat.__fmt = M.fmtSpec
+local function newSpec(name, fields)
+  local st = civ.struct(name, fields)
+  st['#attr'] = {list = true}
+  st.__index = civ.listIndex
+  st.__fmt = M.fmtSpec
+  return st
+end
+
+local FIELDS = {
+  {'kind', civ.Str, false},
+  {'name', civ.Str, false}, -- for fmt only
+}
+M.Pat = newSpec('Pat', {'pattern', 'kind', 'name'})
 civ.constructor(M.Pat, function(ty_, pattern, kind)
   return setmetatable({kind=kind, pattern=pattern}, M.Pat)
 end)
-local FIELDS = {
-  {'kind', civ.Str, false},
-  {'name', civ.Str, false}, -- used only for debugging
-}
-M.Or = civ.struct('Or', FIELDS)
-M.Or['#attr'] = {list = true}
-M.Or.__index = civ.listIndex
-M.Or.__fmt = M.fmtSpec
 
+M.Or = newSpec('Or', FIELDS)
 M.Maybe = function(spec) return M.Or{spec, M.Empty} end
-
-M.Many = civ.struct('Many', {
+M.Many = newSpec('Many', {
   {'kind', civ.Str, false}, {'min', civ.Num, 0},
   {'name', civ.Str, false},
 })
-M.Many['#attr'] = {list = true}
-M.Many.__index = civ.listIndex
-M.Many.__fmt = M.fmtSpec
-
-M.Seq = civ.struct('Seq', FIELDS)
-M.Seq['#attr'] = {list = true}
-M.Seq.__index = civ.listIndex
-M.Seq.__fmt = M.fmtSpec
+M.Seq = newSpec('Seq', FIELDS)
+M.Not = newSpec('Not', FIELDS)
 
 -- Used in Seq to "pin" or "unpin" the parser, affecting when errors
 -- are thrown.
@@ -111,12 +111,27 @@ M.RootSpec['#defaults'].skipEmpty = function(p)
   end
 end
 
+local UNPACK_SPECS = Set{M.Tbl, M.Seq, M.Many, M.Or}
+local function shouldUnpack(spec, t)
+  local r = (
+    type(t) == 'table'
+    and UNPACK_SPECS[ty(spec)]
+    and ty(t) ~= M.Token
+    and not rawget(spec, 'kind')
+    and not rawget(t, 'kind')
+  )
+  return r
+end
+
 -- Create node with optional kind
-local function Node(t, kind)
-  if t and kind then
+local function node(spec, t, kind)
+  if type(t) ~= 'boolean' and t and kind then
     if type(t) == 'table' and not t.kind then
       t.kind = kind
     else t = {t, kind=kind} end
+  end
+  if t and shouldUnpack(spec, t) and #t == 1 then
+    t = t[1]
   end
   return t
 end
@@ -132,20 +147,11 @@ end
 
 local SPEC = {}
 
-local UNPACK_SPECS = Set{
-  M.Tbl, M.Seq, M.Many,
-}
-local function unpackResult(spec, t)
-  return (
-    UNPACK_SPECS[ty(spec)]
-    and ty(t) ~= M.Token
-    and not rawget(spec, 'kind')
-  )
-end
 
-local function _seqAdd(out, spec, t)
-  if unpackResult(spec, t) then
-    pnt('! unpack: ', spec, t)
+local function _seqAdd(p, out, spec, t)
+  if type(t) == 'boolean' then -- skip
+  elseif shouldUnpack(spec, t) then
+    p:dbgUnpack(spec, t)
     extend(out, t)
   else add(out, t) end
 end
@@ -163,11 +169,27 @@ local function parseSeq(p, seq)
       p:dbgLeave()
       return p:checkPin(pin, spec)
     end
-    _seqAdd(out, spec, t)
+    _seqAdd(p, out, spec, t)
     pin = (pin == nil) and true or pin
   ::continue::end
+  local out = node(seq, out, seq.kind)
+  p:dbgLeave(out)
+  return out
+end
+
+local function parseOr(p, or_)
+  p:skipEmpty()
+  p:dbgEnter(or_)
+  local state = p:state()
+  for _, spec in ipairs(or_) do
+    local t = p:parse(spec)
+    if t then
+      t = node(spec, t, or_.kind); p:dbgLeave(t)
+      return t
+    end
+    p:setState(state)
+  end
   p:dbgLeave()
-  return Node(out, seq.kind)
 end
 
 civ.update(SPEC, {
@@ -178,20 +200,8 @@ civ.update(SPEC, {
     p:skipEmpty(); if p:isEof() then return M.EofNode end
   end,
   [civ.Fn]=function(p, fn) p:skipEmpty() return fn(p) end,
-  [M.Or]=function(p, or_)
-    p:skipEmpty()
-    p:dbgEnter(or_)
-    local state = p:state()
-    for _, spec in ipairs(or_) do
-      local t = p:parse(spec)
-      if t then
-        p:dbgLeave()
-        return Node(t, or_.kind)
-      end
-      p:setState(state)
-    end
-    p:dbgLeave()
-  end,
+  [M.Or]=parseOr,
+  [M.Not]=function(p, spec) return not parseSeq(p, spec) end,
   [M.Seq]=parseSeq,
   [civ.Tbl]=function(p, seq) return parseSeq(p, M.Seq(seq)) end,
   [M.Many]=function(p, many)
@@ -202,14 +212,14 @@ civ.update(SPEC, {
       local t = parseSeq(p, seq)
       if not t then break end
       if ty(t) ~= M.Token and #t == 1 then add(out, t[1])
-      else _seqAdd(out, many, t) end
+      else _seqAdd(p, out, many, t) end
     end
     if #out < many.min then
       out = nil
       p:dbgMissed(many, ' got count='..#out)
     end
     p:dbgLeave(many)
-    return Node(out, many.kind)
+    return node(many, out, many.kind)
   end,
 })
 
@@ -226,7 +236,7 @@ local function toStrTokens(dat, n)
     return n
   end
   if ty(n) == M.Token then
-    return Node(dat:sub(n.l, n.c, n.l2, n.c2), n.kind)
+    return node(Pat, dat:sub(n.l, n.c, n.l2, n.c2), n.kind)
   end
   local out = {kind=n.kind}
   for _, n in ipairs(n) do
@@ -306,33 +316,40 @@ checkPin=function(p, pin, expect)
   if not pin then return end
   if p.line then
     civ.errorf(
-      "! Parse Error %s.%s, expected: %s\nGot: %s",
+      "ERROR %s.%s, parser expected: %s\nGot: %s",
       p.l, p.c, expect, p.line:sub(p.c))
   else
     civ.errorf(
-      "! Parse Error %s.%s, reached EOF but expected: %s",
+      "ERROR %s.%s, parser reached EOF but expected: %s",
       p.l, p.c, expect)
   end
 end,
 
 dbgEnter=function(p, spec)
   if not p.root.dbg then return end
-  p:_dbg('ENTER:'..civ.fmt(spec))
+  p:dbg('ENTER:%s', civ.fmt(spec))
   p.dbgIndent = p.dbgIndent + 1
 end,
-dbgLeave=function(p)
+dbgLeave=function(p, n)
   if not p.root.dbg then return end
   p.dbgIndent = p.dbgIndent - 1
+  p:dbg('LEAVE: %s', fmt(n or '((none))'))
 end,
 dbgMatched=function(p, spec)
   if not p.root.dbg then return end
-  p:_dbg('MATCH:'..civ.fmt(spec))
+  p:dbg('MATCH:%s', civ.fmt(spec))
 end,
 dbgMissed=function(p, spec, note)
   if not p.root.dbg then return end
-  p:_dbg('MISS:'..civ.fmt(spec)..(note or ''))
+  p:dbg('MISS:%s%s', civ.fmt(spec), (note or ''))
 end,
-_dbg=function(p, msg)
+dbgUnpack=function(p, spec, t)
+  if not p.root.dbg then return end
+  p:dbg('UNPACK: %s :: %s', fmt(spec), fmt(t))
+end,
+dbg=function(p, fmt, ...)
+  if not p.root.dbg then return end
+  local msg = sfmt(fmt, ...)
   pntf('%%%s %s (%s.%s)', string.rep('  ', p.dbgIndent), msg, p.l, p.c)
 end,
 })
