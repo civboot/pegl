@@ -7,71 +7,80 @@ local KW = function(kw) return {kw, kind=kw} end
 local K = function(k) return {k, kind='key'} end
 
 test('keywords', nil, function()
-  assertParse(
-    'hi there bob',
-    Seq{'hi', 'there', 'bob', EOF},
-    {KW('hi'), KW('there'), KW('bob'), EofNode})
+  assertParse{
+    dat='hi there bob',
+    spec=Seq{'hi', 'there', 'bob', EOF},
+    expect={KW('hi'), KW('there'), KW('bob'), EofNode}
+  }
 
   -- keyword search looks for token break
-  assertParse(
-    'hitherebob',
-    Seq{'hi', 'there', 'bob', EOF},
-    nil)
+  assertParse{
+    dat='hitherebob',
+    spec=Seq{'hi', 'there', 'bob', EOF},
+    expect=nil,
+  }
 
-  assertParse(
-    'hi+there',
-    Seq{'hi', '+', 'there', EOF},
-    {KW('hi'), KW('+'), KW('there'), EofNode})
+  assertParse{
+    dat='hi+there',
+    spec=Seq{'hi', '+', 'there', EOF},
+    expect={KW('hi'), KW('+'), KW('there'), EofNode},
+    root=RootSpec{punc1=Set{'+'}},
+  }
 end)
 
 test('key', nil, function()
-  local kws = Key{pattern='%w+', keys=Set{'hi', 'there', 'bob'}}
-  assertParse('hi there', {kws, kws}, {K'hi', K'there'}, true)
-
-  -- keyword search looks for token break
-  -- assertParse(
-  --   'hitherebob',
-  --   Seq{'hi', 'there', 'bob', EOF},
-  --   nil)
+  local kws = Key{keys=Set{'hi', 'there', 'bob'}, kind='kw'}
+  assertParse{
+    dat='hi there', spec={kws, kws},
+    expect={{kind='kw', 'hi'}, {kind='kw', 'there'}},
+  }
 end)
 
 test('pat', nil, function()
-  assertParse(
-    'hi there bob',
-    Seq{'hi', Pat('%w+'), 'bob', EOF},
-    {KW('hi'), 'there', KW('bob'), EofNode})
+  assertParse{
+    dat='hi there bob',
+    spec={'hi', Pat('%w+'), 'bob', EOF},
+    expect={KW('hi'), 'there', KW('bob'), EofNode},
+  }
 end)
 
 test('or', nil, function()
-  assertParse(
-    'hi +-',
-    Seq{'hi', Or{'-', '+'}, Or{'-', '+', Empty}, Or{'+', Empty}, EOF},
-    {KW('hi'), KW('+'), KW('-'), EmptyNode, EofNode})
+  assertParse{
+    dat='hi +-',
+    spec={'hi', Or{'-', '+'}, Or{'-', '+', Empty}, Or{'+', Empty}, EOF},
+    expect={KW('hi'), KW('+'), KW('-'), EmptyNode, EofNode},
+    root=RootSpec{punc1=Set{'+', '-'}},
+  }
 end)
 
 test('many', nil, function()
-  assertParse(
-    'hi there bob',
-    Seq{Many{Pat('%w+'), kind='words'}},
-    {'hi', 'there', 'bob', kind='words'})
+  assertParse{
+    dat='hi there bob',
+    spec=Seq{Many{Pat('%w+'), kind='words'}},
+    expect={'hi', 'there', 'bob', kind='words'},
+  }
 end)
 
 test('pin', nil, function()
-  assertParseError(
-    'hi there jane',
-    Seq{'hi', 'there', 'bob', EOF},
-    'expected: bob')
-  assertParseError(
-    'hi there jane',
-    Seq{UNPIN, 'hi', 'there', PIN, 'bob', EOF},
-    'expected: bob')
+  assertParseError{
+    dat='hi there jane',
+    spec={'hi', 'there', 'bob', EOF},
+    errPat='expected: bob',
+  }
+  assertParseError{
+    dat='hi there jane',
+    spec={UNPIN, 'hi', 'there', PIN, 'bob', EOF},
+    errPat='expected: bob',
+  }
 
-  assertParse(
-    'hi there jane',
-    Seq{UNPIN, 'hi', 'there', 'bob', EOF},
-    nil)
-  assertParse(
-    'hi there jane',
-    Seq{UNPIN, 'hi', 'there', 'bob', PIN, EOF},
-    nil)
+  assertParse{
+    dat='hi there jane',
+    spec=Seq{UNPIN, 'hi', 'there', 'bob', EOF},
+    expect=nil,
+  }
+  assertParse{
+    dat='hi there jane',
+    spec=Seq{UNPIN, 'hi', 'there', 'bob', PIN, EOF},
+    expect=nil,
+  }
 end)

@@ -22,7 +22,9 @@ M.RootSpec = struct('RootSpec', {
   -- function(p): skip empty space
   -- default: skip whitespace
   {'skipEmpty', civ.Fn},
+  {'tokenizer', civ.Fn},
   {'dbg', Bool, false},
+  'punc1', 'punc2',
 })
 
 M.Parser = struct('Parser', {
@@ -73,7 +75,7 @@ civ.constructor(M.Pat, function(ty_, pattern, kind)
   return setmetatable({pattern=pattern, kind=kind}, M.Pat)
 end)
 
-M.Key = newSpec('Key', {'pattern', 'keys', 'kind', 'name'})
+M.Key = newSpec('Key', {'keys', 'name', 'kind'})
 M.Or = newSpec('Or', FIELDS)
 M.Maybe = function(spec) return M.Or{spec, M.Empty} end
 M.Many = newSpec('Many', {
@@ -111,6 +113,22 @@ M.RootSpec['#defaults'].skipEmpty = function(p)
     end
   end
 end
+
+local function tokenizePunc(p, punc, pat)
+  if not punc then return end
+  local m = p.line:match(pat, p.c)
+  if punc[m] then return m end
+end; M.tokenizePunc = tokenizePunc
+
+M.defaultTokenizer = function(p)
+  p:skipEmpty(); if p:isEof() then return end
+  return (
+    tokenizePunc(p, p.root.punc2, '^%p%p')
+    or tokenizePunc(p, p.root.punc1, '^%p')
+    or p.line:match('^%w+', p.c)
+  )
+end
+M.RootSpec['#defaults'].tokenizer = M.defaultTokenizer
 
 local UNPACK_SPECS = Set{M.Tbl, M.Seq, M.Many, M.Or}
 local function shouldUnpack(spec, t)
@@ -193,8 +211,20 @@ local function parseOr(p, or_)
   p:dbgLeave()
 end
 
+
+local function keyImpl(p, keys, kind)
+  p:skipEmpty();
+  local l, c = p.l, p.c
+  local k = p.root.tokenizer(p)
+  if k and keys[k] then
+    p.c = c + #k
+    return M.Token{kind=kind or k, l=l, c=c, l2=l, c2=p.c - 1}
+  end
+end
+
 civ.update(SPEC, {
-  [civ.Str]=function(p, keyword) return patImpl(p, keyword, keyword, true) end,
+  [civ.Str]=function(p, keyword) return keyImpl(p, {[keyword]=true}) end,
+  [M.Key]=function(p, key) return keyImpl(p, key.keys, key.kind) end,
   [M.Pat]=function(p, pat) return patImpl(p, pat.kind, pat.pattern, false) end,
   [M.EmptyTy]=function() return M.EmptyNode end,
   [M.EofTy]=function(p)
@@ -221,15 +251,6 @@ civ.update(SPEC, {
     end
     p:dbgLeave(many)
     return node(many, out, many.kind)
-  end,
-  [M.Key]=function(p, key)
-    p:skipEmpty(); local l, c = p.l, p.c
-    if not p.line then return end
-    local k = p.line:match(key.pattern, c)
-    if k and key.keys[k] then
-      p.c = c + #k
-      return M.Token{kind=key.kind or 'key', l=l, c=c, l2=l, c2=p.c - 1}
-    end
   end,
 })
 
@@ -270,19 +291,22 @@ M.parseStrs=function(dat, spec, root)
   return toStrTokens(dat, node)
 end
 
-M.assertParse=function(dat, spec, expect, dbg)
-  local result = M.parseStrs(dat, spec, RootSpec{dbg=dbg})
-  if expect ~= result then
+M.assertParse=function(t) -- {dat, spec, expect, dbg=false, root=RootSpec{}}
+  assert(t.dat, 'dat'); assert(t.spec, 'spec')
+  local root = t.root or RootSpec{}
+  root.dbg   = t.dbg or root.dbg
+  local result = M.parseStrs(t.dat, t.spec, root)
+  if t.expect ~= result then
     civ.assertEq(
-      fmt(expect, {pretty=true}),
-      fmt(result, {pretty=true}))
+      fmt(t.expect, {pretty=true}),
+      fmt(result,   {pretty=true}))
   end
 end
 
-M.assertParseError=function(dat, spec, errPat, plain)
+M.assertParseError=function(t)
   civ.assertError(
-    function() M.parse(dat, spec) end,
-    errPat, plain)
+    function() M.parse(assert(t.dat), assert(t.spec)) end,
+    assert(t.errPat), t.plain)
 end
 
 civ.methods(M.Parser, {
