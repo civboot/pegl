@@ -40,7 +40,6 @@ op2 = Or{name='op2',
 
 -----------------
 -- Expression (exp)
-
 -- We do exp a little different from the BNF. We create an `exp1` which is a
 -- non-operated expression and then have `exp` implement a list of expression
 -- operations.
@@ -81,7 +80,6 @@ local block = {name='block',
 
 -----------------
 -- String (+exp1)
-
 local quoteImpl = function(p, char, pat, kind)
   p:skipEmpty()
   local l, c = p.l, p.c
@@ -157,10 +155,8 @@ local fnvalue = {'function', fnbody, kind='fnvalue'}
 add(exp1, fnvalue)
 add(exp1, name)
 
-
 -----------------
 -- Statement (stmt)
-
 local elseif_  = {'elseif', exp, 'then', block, kind='elseif'}
 local else_    = {'else', block, kind='else'}
 local funcname = {name, Many{'.', name}, Maybe{':', name}, kind='funcname'}
