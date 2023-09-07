@@ -4,6 +4,7 @@ grequire'civ.gap'
 grequire'pegl'
 
 local KW = function(kw) return {kw, kind=kw} end
+local K = function(k) return {k, kind='key'} end
 
 test('keywords', nil, function()
   assertParse(
@@ -21,6 +22,17 @@ test('keywords', nil, function()
     'hi+there',
     Seq{'hi', '+', 'there', EOF},
     {KW('hi'), KW('+'), KW('there'), EofNode})
+end)
+
+test('key', nil, function()
+  local kws = Key{pattern='%w+', keys=Set{'hi', 'there', 'bob'}}
+  assertParse('hi there', {kws, kws}, {K'hi', K'there'}, true)
+
+  -- keyword search looks for token break
+  -- assertParse(
+  --   'hitherebob',
+  --   Seq{'hi', 'there', 'bob', EOF},
+  --   nil)
 end)
 
 test('pat', nil, function()

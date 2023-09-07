@@ -70,7 +70,7 @@ test('fnValue', nil, function()
     KW('function'), KW('('), EMPTY, KW(')'),
     EMPTY,
     KW('end'),
-  })
+  }, true)
 end)
 
 test('require', nil, function()

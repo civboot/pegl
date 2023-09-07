@@ -70,9 +70,10 @@ local FIELDS = {
 }
 M.Pat = newSpec('Pat', {'pattern', 'kind', 'name'})
 civ.constructor(M.Pat, function(ty_, pattern, kind)
-  return setmetatable({kind=kind, pattern=pattern}, M.Pat)
+  return setmetatable({pattern=pattern, kind=kind}, M.Pat)
 end)
 
+M.Key = newSpec('Key', {'pattern', 'keys', 'kind', 'name'})
 M.Or = newSpec('Or', FIELDS)
 M.Maybe = function(spec) return M.Or{spec, M.Empty} end
 M.Many = newSpec('Many', {
@@ -220,6 +221,15 @@ civ.update(SPEC, {
     end
     p:dbgLeave(many)
     return node(many, out, many.kind)
+  end,
+  [M.Key]=function(p, key)
+    p:skipEmpty(); local l, c = p.l, p.c
+    if not p.line then return end
+    local k = p.line:match(key.pattern, c)
+    if k and key.keys[k] then
+      p.c = c + #k
+      return M.Token{kind=key.kind or 'key', l=l, c=c, l2=l, c2=p.c - 1}
+    end
   end,
 })
 
