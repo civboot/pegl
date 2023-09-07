@@ -10,6 +10,17 @@ test('keywords', nil, function()
     'hi there bob',
     Seq{'hi', 'there', 'bob', EOF},
     {KW('hi'), KW('there'), KW('bob'), EofNode})
+
+  -- keyword search looks for token break
+  assertParse(
+    'hitherebob',
+    Seq{'hi', 'there', 'bob', EOF},
+    nil)
+
+  assertParse(
+    'hi+there',
+    Seq{'hi', '+', 'there', EOF},
+    {KW('hi'), KW('+'), KW('there'), EofNode})
 end)
 
 test('pat', nil, function()

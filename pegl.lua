@@ -286,7 +286,15 @@ parse=function(p, spec)
 end,
 peek=function(p, pattern, plain)
   if p:skipEmpty() then return nil end
-  local c, c2 = string.find(p.line, pattern, p.c, plain)
+  local c, c2 = nil, nil
+  if not plain or not pattern:find('%w+') then
+    -- not plain or only symbols in pattern
+    c, c2 = p.line:find(pattern, p.c, plain)
+  else -- plain word-like, tokenize
+    if pattern == p.line:match('^'..pattern..'%w*', p.c) then
+      c, c2 = p.c, p.c + #pattern - 1
+    end
+  end
   if c == p.c then return M.Token{l=p.l, c=c, l2=p.l, c2=c2} end
 end,
 consume=function(p, pattern, plain)

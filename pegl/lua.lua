@@ -102,11 +102,12 @@ end
 
 local singleStr = function(p) return quoteImpl(p, "'", "(\\*)'", 'singleStr') end
 local doubleStr = function(p) return quoteImpl(p, '"', '(\\*)"', 'doubleStr') end
-local bracketStr = function(p)
+
+local bracketStrImpl = function(p, prefix)
   p:skipEmpty()
   local l, c = p.l, p.c
-  local start = p:consume('%[=*%['); if not start then return end
-  local pat = '%]'..string.rep('=', start.c2 - start.c1 - 1)..'%]'
+  local start = p:consume(prefix..'%[=*%['); if not start then return end
+  local pat = prefix..'%]'..string.rep('=', start.c2 - start.c1 - 1)..'%]'
   while true do
     local c1, c2 = p.line:find(pat, p.c)
     if c2 then return Token{l=l, c=c, l2=p.l, c2=c2}
@@ -118,8 +119,13 @@ local bracketStr = function(p)
     end
   end
 end
-local str   = Or{singleStr, doubleStr, bracketStr}
+local bracketStr     = function(p) return bracketStrImpl(p, '') end
+local bracketComment = function(p) return bracketStrImpl(p, '%-%-') end
+local comment = Or{bracketComment, Pat('%-%-.*'), kind='comment'}
+local str     = Or{singleStr, doubleStr, bracketStr}
+add(exp1, comment)
 add(exp1, str)
+
 
 -----------------
 -- Table (+exp1)
@@ -205,6 +211,7 @@ extend(stmt, {
 })
 
 return {
+  src=Many{stmt},
   exp=exp, exp1=exp1, stmt=stmt,
   num=num, str=str,
   field=field,

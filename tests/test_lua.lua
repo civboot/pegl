@@ -71,4 +71,12 @@ test('fnValue', nil, function()
   })
 end)
 
+local function testLuaPath(path)
+  local f = io.open('pegl.lua', 'r')
+  local text = f:read'*a'; f:close()
 
+end
+
+test('parseSrc', nil, function()
+
+end)
