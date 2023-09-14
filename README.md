@@ -3,6 +3,9 @@
 > WARNING: PEGL is in development and is not yet ready for use.
 > Initial (demo) implementation is done but PEGL is not yet used for
 > any "real" parsing.
+>
+> This will be migrated to https://github.com/civboot/civlua when I get back
+> from a long coding break and have a working type system.
 
 PEGL is PEG like recursive descent Parser written in Lua.
 
