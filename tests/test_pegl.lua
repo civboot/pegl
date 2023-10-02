@@ -1,12 +1,13 @@
 
-require'civ':grequire()
-grequire'civ.gap'
-grequire'pegl'
+local T = require'civtest'
+local ds = require'ds'
+T.grequire'pegl'
+local Set = ds.Set
 
 local KW = function(kw) return {kw, kind=kw} end
-local K = function(k) return {k, kind='key'} end
+local K  = function(k)  return {k, kind='key'} end
 
-test('keywords', nil, function()
+T.test('keywords', function()
   assertParse{
     dat='hi there bob',
     spec=Seq{'hi', 'there', 'bob', EOF},
@@ -28,7 +29,7 @@ test('keywords', nil, function()
   }
 end)
 
-test('key', nil, function()
+T.test('key', function()
   local kws = Key{keys=Set{'hi', 'there', 'bob'}, kind='kw'}
   assertParse{
     dat='hi there', spec={kws, kws},
@@ -36,7 +37,7 @@ test('key', nil, function()
   }
 end)
 
-test('pat', nil, function()
+T.test('pat', function()
   assertParse{
     dat='hi there bob',
     spec={'hi', Pat('%w+'), 'bob', EOF},
@@ -44,7 +45,7 @@ test('pat', nil, function()
   }
 end)
 
-test('or', nil, function()
+T.test('or', function()
   assertParse{
     dat='hi +-',
     spec={'hi', Or{'-', '+'}, Or{'-', '+', Empty}, Or{'+', Empty}, EOF},
@@ -53,15 +54,16 @@ test('or', nil, function()
   }
 end)
 
-test('many', nil, function()
+T.test('many', function()
   assertParse{
     dat='hi there bob',
     spec=Seq{Many{Pat('%w+'), kind='words'}},
     expect={'hi', 'there', 'bob', kind='words'},
+    dbg=true,
   }
 end)
 
-test('pin', nil, function()
+T.test('pin', function()
   assertParseError{
     dat='hi there jane',
     spec={'hi', 'there', 'bob', EOF},

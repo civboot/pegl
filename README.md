@@ -3,9 +3,6 @@
 > WARNING: PEGL is in development and is not yet ready for use.
 > Initial (demo) implementation is done but PEGL is not yet used for
 > any "real" parsing.
->
-> This will be migrated to https://github.com/civboot/civlua when I get back
-> from a long coding break and have a working type system.
 
 PEGL is PEG like recursive descent Parser written in Lua.
 
@@ -24,9 +21,9 @@ own language with an AST then I cannot recommend
 it out before digging too deeply into PEGL.
 
 ## Introduction
-A parser is a way to convert text into structured node objects so that
-the text can be compiled or annotated by a program. For example you might want
-to convert some source code like:
+A parser is a way to convert text into structured node objects so that the text
+can be compiled or annotated by a program. For example you might want to convert
+some source code like:
 
 ```
 x = 1 + 2
@@ -35,23 +32,23 @@ x = 1 + 2
 Into something like:
 
 ```
-{'x', '=', {'1', '+', '2'}}
+{'x', '=', {'1', '+', '2', kind='op'}, kind='assign'}
 ```
 
 A recursive descent parser does so via hand-rolled functions which typically
 _recurse_ into eachother. Each function attempts to parse from the current
 parser position using it's spec (which may be composed of calling other parsing
 functions) and returns either the successfully parsed node or `nil` (or perhaps
-raises an error if it finds a syntax error).  PEGL is a lua library for writing
+raises an error if it finds a syntax error).  PEGL is a Lua library for writing
 the common-cases of a recursive descent parser in a (pure Lua) syntax similar to
-PEG, while still being able to fallback to hand-rolled recursive descent when
-needed.
+PEG, while still being able to easily fallback to hand-rolled recursive descent
+when needed.
 
 Most traditional PEG parsers struggle with complicated syntax such as Lua's
 `[===[raw string syntax]===]`, python's whitespace denoted syntax or C's
-lookahead requirements (`(U2)*c**h`) -- recursive descent can solve alot of
+lookahead requirements (`(U2)*c**h`) -- recursive descent can solve a lot of
 these problems relatively easily and performantly.  However, recursive descent
-parsers can be very verbse and sometimes difficult to scan. Below is a
+parsers can be very verbose and sometimes difficult to understand. Below is a
 comparison of the above example in both PEG, PEGL and a "traditional" (though
 not very good) recursive descent implementation.
 

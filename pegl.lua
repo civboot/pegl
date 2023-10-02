@@ -1,50 +1,51 @@
 -- rd: recursive descent parser
 
-local civ = require'civ'
-local gap = require'civ.gap'
-local ty, extend = civ.ty, civ.extend
-local add = table.insert
+local mty     = require'metaty'
+local ds      = require'ds'
+local civtest = require'civtest'
+local ty = mty.ty
+local extend, lines = ds.extend, ds.lines
+local add, sfmt = table.insert, string.format
 
 local M = {}
-local sfmt = string.format
+local SPEC = {}
 
-M.Token = struct('Token', {
-  'kind',
-  {'l', Int}, {'c', Int},
-  {'l2', Int}, {'c2', Int},
-})
+M.Token = mty.record'Token'
+  :field'kind'
+  :field('l', 'number')  :field('c', 'number')
+  :field('l2', 'number') :field('c2', 'number')
+
 M.Token.__fmt = function(t, f)
   if t.kind then extend(f, {'Token(', t.kind, ')'})
-  else civ.tblFmt(t, f) end
+  else mty.tblFmt(t, f) end
 end
 
-M.RootSpec = struct('RootSpec', {
+M.RootSpec = mty.record'RootSpec'
   -- function(p): skip empty space
   -- default: skip whitespace
-  {'skipEmpty', civ.Fn},
-  {'tokenizer', civ.Fn},
-  {'dbg', Bool, false},
-  'punc1', 'punc2',
-})
+  :field('skipEmpty', 'function')
+  :field('tokenizer', 'function')
+  :field('dbg', 'boolean', false)
+  :field'punc1' :field'punc2'
 
-M.Parser = struct('Parser', {
-  'dat', 'l', 'c', 'line', 'lines',
-  {'root', M.RootSpec},
-  {'dbgIndent', Int, 0},
-})
+M.Parser = mty.record'Parser'
+  :field'dat'
+  :field'l' :field'c' :field'line' :field'lines'
+  :field('root', M.RootSpec)
+  :field('dbgIndent', 'number', 0)
 
 M.fmtSpec = function(s, f)
   if type(s) == 'string' then
     return add(f, string.format("%q", s))
   end
   if type(s) == 'function' then
-    return add(f, civ.fnToStr(s))
+    return add(f, mty.fmt(s))
   end
   if s.name or s.kind then
     add(f, '<'); add(f, s.name or s.kind); add(f, '>')
     return
   end
-  add(f, civ.tyName(s));
+  add(f, mty.tyName(s));
   f:levelEnter('{')
   for i, sub in ipairs(s) do
     M.fmtSpec(sub, f);
@@ -53,35 +54,38 @@ M.fmtSpec = function(s, f)
   f:levelLeave('}')
 end
 M.specToStr = function(s, set)
-  local set = set or {}
+  local set = set or mty.FmtSpec{}
   if set.pretty == nil then set.pretty = true end
-  local f = civ.Fmt{set=set}; M.fmtSpec(s, f); return f:toStr()
+  local f = mty.Fmt{set=set}; M.fmtSpec(s, f)
+  return f:toStr()
 end
 
 local function newSpec(name, fields)
-  local st = civ.struct(name, fields)
-  st['#attr'] = {list = true}
-  st.__index = civ.listIndex
-  st.__fmt = M.fmtSpec
-  return st
+  local r = mty.record(name)
+  r.__index = mty.indexUnchecked
+  r.__fmt = M.fmtSpec
+  for _, args in ipairs(fields or {}) do r:field(table.unpack(args)) end
+  return r
 end
 
 local FIELDS = {
-  {'kind', civ.Str, false},
-  {'name', civ.Str, false}, -- for fmt only
+  {'kind', 'string', false},
+  {'name', 'string', false}, -- for fmt only
 }
-M.Pat = newSpec('Pat', {'pattern', 'kind', 'name'})
-civ.constructor(M.Pat, function(ty_, pattern, kind)
+M.Pat = newSpec('Pat')
+  :fieldMaybe'pattern' :fieldMaybe'kind' :fieldMaybe'name'
+M.Pat:new(function(ty_, pattern, kind)
   return setmetatable({pattern=pattern, kind=kind}, M.Pat)
 end)
 
-M.Key = newSpec('Key', {'keys', 'name', 'kind'})
+M.Key = newSpec'Key'
+  :fieldMaybe'keys' :fieldMaybe'name' :fieldMaybe'kind'
 M.Or = newSpec('Or', FIELDS)
 M.Maybe = function(spec) return M.Or{spec, M.Empty} end
-M.Many = newSpec('Many', {
-  {'kind', civ.Str, false}, {'min', civ.Num, 0},
-  {'name', civ.Str, false},
-})
+M.Many = newSpec'Many'
+  :fieldMaybe('kind', 'string')
+  :field('min', 'number', 0)
+  :fieldMaybe('name', 'string')
 M.Seq = newSpec('Seq', FIELDS)
 M.Not = newSpec('Not', FIELDS)
 
@@ -92,17 +96,17 @@ M.UNPIN = {name='UNPIN'}
 
 -- Denotes a missing node. When used in a spec simply returns Empty.
 -- Example: Or{Integer, String, Empty}
-M.EmptyTy = civ.struct('Empty', FIELDS)
+M.EmptyTy = newSpec('Empty', FIELDS)
 M.Empty = M.EmptyTy{kind='Empty'}
 M.EmptyNode = {kind='Empty'}
 
 -- Denotes the end of the file
-M.EofTy = civ.struct('EOF', FIELDS)
+M.EofTy = newSpec('EOF', FIELDS)
 M.EOF = M.EofTy{kind='EOF'}
 M.EofNode = {kind='EOF'}
 
--- Skip all whitespace
-M.RootSpec['#defaults'].skipEmpty = function(p)
+-- Default skipEmpty function.
+M.RootSpec.skipEmpty = function(p)
   while true do
     if p:isEof() then return end
     if p.c > #p.line then p:incLine()
@@ -128,16 +132,18 @@ M.defaultTokenizer = function(p)
     or p.line:match('^%w+', p.c)
   )
 end
-M.RootSpec['#defaults'].tokenizer = M.defaultTokenizer
+M.RootSpec.tokenizer = M.defaultTokenizer
 
-local UNPACK_SPECS = Set{M.Tbl, M.Seq, M.Many, M.Or}
+-- TODO: the civ version had M.Tbl which was (accidentally) null.
+-- Do we want 'table' here?
+local UNPACK_SPECS = ds.Set{M.Seq, M.Many, M.Or, --[['table']]}
 local function shouldUnpack(spec, t)
   local r = (
     type(t) == 'table'
     and UNPACK_SPECS[ty(spec)]
     and ty(t) ~= M.Token
     and not rawget(spec, 'kind')
-    and not rawget(t, 'kind')
+    and not rawget(t,    'kind')
   )
   return r
 end
@@ -164,9 +170,6 @@ local function patImpl(p, kind, pattern, plain)
   return t
 end
 
-local SPEC = {}
-
-
 local function _seqAdd(p, out, spec, t)
   if type(t) == 'boolean' then -- skip
   elseif shouldUnpack(spec, t) then
@@ -190,7 +193,8 @@ local function parseSeq(p, seq)
     end
     _seqAdd(p, out, spec, t)
     pin = (pin == nil) and true or pin
-  ::continue::end
+    ::continue::
+  end
   local out = node(seq, out, seq.kind)
   p:dbgLeave(out)
   return out
@@ -222,22 +226,22 @@ local function keyImpl(p, keys, kind)
   end
 end
 
-civ.update(SPEC, {
-  [civ.Str]=function(p, keyword) return keyImpl(p, {[keyword]=true}) end,
+ds.update(SPEC, {
+  ['string']=function(p, keyword) return keyImpl(p, {[keyword]=true}) end,
   [M.Key]=function(p, key) return keyImpl(p, key.keys, key.kind) end,
   [M.Pat]=function(p, pat) return patImpl(p, pat.kind, pat.pattern, false) end,
   [M.EmptyTy]=function() return M.EmptyNode end,
   [M.EofTy]=function(p)
     p:skipEmpty(); if p:isEof() then return M.EofNode end
   end,
-  [civ.Fn]=function(p, fn) p:skipEmpty() return fn(p) end,
+  ['function']=function(p, fn) p:skipEmpty() return fn(p) end,
   [M.Or]=parseOr,
   [M.Not]=function(p, spec) return not parseSeq(p, spec) end,
   [M.Seq]=parseSeq,
-  [civ.Tbl]=function(p, seq) return parseSeq(p, M.Seq(seq)) end,
+  ['table']=function(p, seq) return parseSeq(p, M.Seq(seq)) end,
   [M.Many]=function(p, many)
     local out = {}
-    local seq = copy(many); seq.kind = nil
+    local seq = ds.copy(many); seq.kind = nil
     p:dbgEnter(many)
     while true do
       local t = parseSeq(p, seq)
@@ -267,7 +271,7 @@ local function toStrTokens(dat, n)
     return n
   end
   if ty(n) == M.Token then
-    return node(Pat, dat:sub(n.l, n.c, n.l2, n.c2), n.kind)
+    return node(Pat, lines.sub(dat, n.l, n.c, n.l2, n.c2), n.kind)
   end
   local out = {kind=n.kind}
   for _, n in ipairs(n) do
@@ -277,7 +281,7 @@ local function toStrTokens(dat, n)
 end; M.toStrTokens = toStrTokens
 
 local function defaultDat(dat)
-  if type(dat) == 'string' then return gap.Gap.new(dat)
+  if type(dat) == 'string' then return lines.split(dat)
   else return dat end
 end
 
@@ -297,32 +301,32 @@ M.assertParse=function(t) -- {dat, spec, expect, dbg=false, root=RootSpec{}}
   root.dbg   = t.dbg or root.dbg
   local result = M.parseStrs(t.dat, t.spec, root)
   if t.expect ~= result then
-    civ.assertEq(
-      fmt(t.expect, {pretty=true}),
-      fmt(result,   {pretty=true}))
+    civtest.assertEq(
+      mty.fmt(t.expect, mty.FmtSet{pretty=true}),
+      mty.fmt(result,   mty.FmtSet{pretty=true}))
   end
 end
 
 M.assertParseError=function(t)
-  civ.assertError(
+  civtest.assertErrorPat(
+    t.errPat,
     function() M.parse(assert(t.dat), assert(t.spec)) end,
-    assert(t.errPat), t.plain)
+    t.plain)
 end
 
-civ.methods(M.Parser, {
-__tostring=function() return 'Parser()' end,
-new=function(dat, root)
+M.Parser.__tostring=function() return 'Parser()' end
+M.Parser.new=function(dat, root)
   dat = defaultDat(dat)
   return M.Parser{
-    dat=dat, l=1, c=1, line=dat:getLine(1), lines=dat:len(),
+    dat=dat, l=1, c=1, line=dat[1], lines=#dat,
     root=root or RootSpec{},
   }
-end,
-parse=function(p, spec)
+end
+M.Parser.parse=function(p, spec)
   local specFn = SPEC[ty(spec)]
   return specFn(p, spec)
-end,
-peek=function(p, pattern, plain)
+end
+M.Parser.peek=function(p, pattern, plain)
   if p:skipEmpty() then return nil end
   local c, c2 = nil, nil
   if not plain or not pattern:find('%w+') then
@@ -334,70 +338,70 @@ peek=function(p, pattern, plain)
     end
   end
   if c == p.c then return M.Token{l=p.l, c=c, l2=p.l, c2=c2} end
-end,
-consume=function(p, pattern, plain)
+end
+M.Parser.consume=function(p, pattern, plain)
   local t = p:peek(pattern, plain)
   if t then p.c = t.c2 + 1 end
   return t
-end,
-sub=function(p, t) -- t=token
-  return p.dat:sub(t.l, t.c, t.l2, t.c2)
-end,
-incLine=function(p)
+end
+M.Parser.sub=function(p, t) -- t=token
+  return lines.sub(p.dat, t.l, t.c, t.l2, t.c2)
+end
+M.Parser.incLine=function(p)
   p.l, p.c = p.l + 1, 1
-  p.line = p.dat:getLine(p.l)
-end,
-isEof=function(p) return not p.line end,
-skipEmpty=function(p)
+  p.line = p.dat[p.l]
+end
+M.Parser.isEof=function(p) return not p.line end
+M.Parser.skipEmpty=function(p)
   p.root.skipEmpty(p)
   return p:isEof()
-end,
-state   =function(p) return {l=p.l, c=p.c, line=p.line} end,
-setState=function(p, st) p.l, p.c, p.line = st.l, st.c, st.line end,
+end
+M.Parser.state   =function(p) return {l=p.l, c=p.c, line=p.line} end
+M.Parser.setState=function(p, st) p.l, p.c, p.line = st.l, st.c, st.line end
 
-parse=function(p, spec)
+M.Parser.parse=function(p, spec)
   return SPEC[ty(spec)](p, spec)
-end,
-checkPin=function(p, pin, expect)
+end
+M.Parser.checkPin=function(p, pin, expect)
   if not pin then return end
   if p.line then
-    civ.errorf(
+    mty.errorf(
       "ERROR %s.%s, parser expected: %s\nGot: %s",
       p.l, p.c, expect, p.line:sub(p.c))
   else
-    civ.errorf(
+    mty.errorf(
       "ERROR %s.%s, parser reached EOF but expected: %s",
       p.l, p.c, expect)
   end
-end,
+end
 
-dbgEnter=function(p, spec)
+M.Parser.dbgEnter=function(p, spec)
   if not p.root.dbg then return end
-  p:dbg('ENTER:%s', civ.fmt(spec))
+  p:dbg('ENTER:%s', mty.fmt(spec))
   p.dbgIndent = p.dbgIndent + 1
-end,
-dbgLeave=function(p, n)
+end
+M.Parser.dbgLeave=function(p, n)
   if not p.root.dbg then return end
   p.dbgIndent = p.dbgIndent - 1
-  p:dbg('LEAVE: %s', fmt(n or '((none))'))
-end,
-dbgMatched=function(p, spec)
+  p:dbg('LEAVE: %s', mty.fmt(n or '((none))'))
+end
+M.Parser.dbgMatched=function(p, spec)
   if not p.root.dbg then return end
-  p:dbg('MATCH:%s', civ.fmt(spec))
-end,
-dbgMissed=function(p, spec, note)
+  p:dbg('MATCH:%s', mty.fmt(spec))
+end
+M.Parser.dbgMissed=function(p, spec, note)
   if not p.root.dbg then return end
-  p:dbg('MISS:%s%s', civ.fmt(spec), (note or ''))
-end,
-dbgUnpack=function(p, spec, t)
+  p:dbg('MISS:%s%s', mty.fmt(spec), (note or ''))
+end
+M.Parser.dbgUnpack=function(p, spec, t)
   if not p.root.dbg then return end
   p:dbg('UNPACK: %s :: %s', fmt(spec), fmt(t))
-end,
-dbg=function(p, fmt, ...)
+end
+M.Parser.dbg=function(p, fmt, ...)
   if not p.root.dbg then return end
   local msg = sfmt(fmt, ...)
-  pntf('%%%s %s (%s.%s)', string.rep('  ', p.dbgIndent), msg, p.l, p.c)
-end,
-})
+  mty.pnt(string.format('%%%s %s (%s.%s)',
+    string.rep('  ', p.dbgIndent), msg, p.l, p.c))
+end
 
 return M

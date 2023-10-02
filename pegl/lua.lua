@@ -3,7 +3,7 @@
 -- I used http://parrot.github.io/parrot-docs0/0.4.7/html/languages/lua/doc/lua51.bnf.html
 -- as a reference
 
-local civ = require'civ'
+local ds  = require'ds'
 local pegl = require'pegl'
 local add = table.insert
 
@@ -68,7 +68,7 @@ local call     = Or{name='call'} -- function call (defined much later)
 local methcall = {':', name, call, kind='methcall'}
 local index    = {'[', exp, ']', kind='index'}
 local postexp  = Or{methcall, index, call}
-extend(exp,      {exp1, Many{op2, exp1}, Many{postexp}})
+ds.extend(exp,      {exp1, Many{op2, exp1}, Many{postexp}})
 
 -- laststat ::= return [explist1]  |  break
 -- block    ::= {stat [`;´]} [laststat[`;´]]
@@ -91,7 +91,7 @@ local quoteImpl = function(p, char, pat, kind)
     if c2 then
       p.c = c2 + 1
       local bs = string.match(p.line:sub(c1, c2), pat)
-      if civ.isEven(#bs) then
+      if ds.isEven(#bs) then
         return Token{l=l, c=c, l2=p.l, c2=c2, kind=kind}
       end
     else
@@ -148,7 +148,7 @@ add(exp1, tbl)
 
 -- fully define function call
 -- call ::=  `(´ [explist1] `)´  |  tableconstructor  |  String
-extend(call, {{'(', explist, ')'}, tbl, str})
+ds.extend(call, {{'(', explist, ')'}, tbl, str})
 
 -----------------
 -- Function (+exp1)
@@ -170,7 +170,7 @@ local elseif_  = {'elseif', exp, 'then', block, kind='elseif'}
 local else_    = {'else', block, kind='else'}
 local funcname = {name, Many{'.', name}, Maybe{':', name}, kind='funcname'}
 
-extend(stmt, {
+ds.extend(stmt, {
   comment,
 
   -- do block end

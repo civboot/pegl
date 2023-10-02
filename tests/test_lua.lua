@@ -1,13 +1,13 @@
-require'civ':grequire()
-grequire'pegl'
-grequire'pegl.lua'
+local T = require'civtest'
+T.grequire'pegl'
+T.grequire'pegl.lua'
 
 local KW = function(kw) return {kw, kind=kw} end
 local EMPTY, EOF = {kind='Empty'}, {kind='EOF'}
 
 local N = function(n) return {kind='name', n} end
 
-test('easy', nil, function()
+T.test('easy', function()
   assertParse{dat='42  0x3A', spec={num, num}, expect={
     {kind='dec', '42'},
     {kind='hex', '0x3A'},
@@ -21,7 +21,7 @@ test('easy', nil, function()
   assertParse{dat='  nil\n', spec={exp}, expect=KW('nil')}
 end)
 
-test('str', nil, function()
+T.test('str', function()
   assertParse{dat=' "hi there" ', spec={str},
     expect={kind='doubleStr', '"hi there"'}}
   assertParse{dat=[[  'yo\'ya'  ]], spec={str},
@@ -34,7 +34,7 @@ test('str', nil, function()
 end)
 
 
-test('field', nil, function()
+T.test('field', function()
   assertParse{dat=' 44 ',     spec={field},
     expect={kind='field', {kind='dec',  '44'}}}
   assertParse{dat=' hi ',     spec={field},
@@ -51,7 +51,7 @@ test('field', nil, function()
   -- })
 end)
 
--- test('table', nil, function()
+-- T.test('table', function()
 --   assertParse('{}', {exp}, {kind='table',
 --     KW('{'), EMPTY, KW('}'),
 --   })
@@ -72,7 +72,7 @@ end)
 --   })
 -- end)
 -- 
--- test('fnValue', nil, function()
+-- T.test('fnValue', function()
 --   assertParse('function() end', {exp}, {kind='fnvalue',
 --     KW('function'), KW('('), EMPTY, KW(')'),
 --     EMPTY,
@@ -80,7 +80,7 @@ end)
 --   }, true)
 -- end)
 -- 
--- test('require', nil, function()
+-- T.test('require', function()
 --   assertParse('local F = require"foo"', src, {
 --     { kind='varlocal',
 --       KW('local'),
@@ -93,7 +93,7 @@ end)
 --   })
 -- end)
 -- 
--- test('src', nil, function()
+-- T.test('src', function()
 --   local code1 = 'a.b = function(y, z) return y + z end'
 --   local expect1 = {
 --     {kind='varset',
@@ -129,6 +129,6 @@ end)
 -- 
 -- end
 -- 
--- test('parseSrc', nil, function()
+-- T.test('parseSrc', function()
 --   -- testLuaPath('./pegl.lua')
 -- end)

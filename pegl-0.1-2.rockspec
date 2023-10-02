@@ -10,7 +10,9 @@ description = {
 }
 dependencies = {
   "lua ~> 5.3",
-  "civ >= 0.1-2",
+  "metaty >= 0.1-3",
+  "ds >= 0.1-3",
+  "civtest >= 0.1-0",
 }
 build = {
   type = "builtin",

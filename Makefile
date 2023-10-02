@@ -6,7 +6,7 @@ OUT=bin/tests
 
 .PHONY: all test clean lua
 
-LP = "./?.lua;../civlib/lua/?.lua;${LUA_PATH}"
+LP = "../civlua/?/?.lua;${LUA_PATH}"
 
 all: test
 
